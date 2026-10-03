@@ -646,8 +646,13 @@ namespace GlamourGames
                     var cr = Cell(r, 0); float y = RY + (k - fr2) * (CW + GP); var rect = Gfx.R(cr.Left, y, CW, CW); string sym = Sym(r, (int)fl + k); bool hl = !moving[r] && !spinning && k >= 0 && k < 3 && HL.Contains((r, k));
                     bool dimIt = !moving[r] && !spinning && HL.Count > 0 && !hl && k >= 0 && k < 3;
                     // Bewegungsunschaerfe: versetzte, durchscheinende Kopien (wie Original per SaveLayer-Alpha)
+                    // Zylinder-Projektion der Walze: Symbole wandern auf einer Trommel (oben/unten gestaucht)
+                    float drumR = col.Height * .62f, th = (y + CW / 2f - col.MidY - off) / drumR;
+                    if (Math.Abs(th) > 1.5f) continue;
+                    c.Save(); c.Translate(rect.MidX, col.MidY - off + drumR * MathF.Sin(th)); c.Scale(1, MathF.Cos(th)); c.Translate(-rect.MidX, -(y + CW / 2f));
                     if (v > 1800) { for (int gI = 1; gI <= 3; gI++) { var gr2 = Gfx.R(cr.Left, y - gI * v * .006f, CW, CW); c.SaveLayer(90f / gI / 255f); DrawCell(c, gr2, sym); c.Restore(); } }
                     DrawCell(c, rect, sym, hl ? 1.05f + .04f * pu : 1, dimIt ? .5f : 0, hl, pu);
+                    c.Restore();
                 }
                 c.Restore(); if (v > 1500) Gfx.Rect(c, col, 14, Col.Black.A(.15f));
                 // Walzen-Woelbung: oben und unten abdunkeln, Glanzstreifen in der Mitte
