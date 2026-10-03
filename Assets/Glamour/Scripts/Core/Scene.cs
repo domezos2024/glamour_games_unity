@@ -38,8 +38,11 @@ namespace GlamourGames
         /// <summary>Name fuer Platz i (0 oder 1); Platz 2 heisst "Computer", wenn der Computer spielt.</summary>
         public string PName(int i) => i == 1 && VsCpu ? Opponents.CpuName(Opp) : Pl.Name(i);
         /// <summary>Laesst den Computer "nachdenken" (Anzeige + Verzoegerung) und fuehrt dann die Aktion aus.</summary>
-        public void CpuThink(float seconds, Action act) { cpuThinkT = seconds; cpuThinkMax = seconds; Tm.After(seconds, () => { cpuThinkT = 0; act(); }); }
+        public void CpuThink(float seconds, Action act) { int tok = ++thinkTok; cpuThinkT = seconds; cpuThinkMax = seconds; Tm.After(seconds, () => { if (tok == thinkTok) cpuThinkT = 0; act(); }); }
+        int thinkTok;
         public bool CpuThinking => cpuThinkT > 0;
+        /// <summary>Blendet die Denk-Anzeige sofort aus (z. B. bei Neustart). Geplante Aktionen per Generationszaehler verwerfen.</summary>
+        public void CancelCpuThink() { cpuThinkT = 0; thinkTok++; }
         float cpuThinkT, cpuThinkMax;
 
         string banner; Col bannerCol;

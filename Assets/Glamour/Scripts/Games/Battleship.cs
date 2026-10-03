@@ -33,7 +33,7 @@ namespace GlamourGames
         void NextRound() { starter = 1 - starter; NewGame(); }
         void NewGame()
         {
-            gen++; cpuAim = -1; parade = null; resShown = false; fleet = new[] { Mk(), Mk() }; shots = new[] { new HashSet<int>(), new HashSet<int>() }; cur = 0; ph = Ph.Setup; sel = -1; horiz = true; mark.Clear(); sink.Clear(); sunkFx.Clear(); Fx.Clear(); Modal = null; busy = false;
+            gen++; CancelCpuThink(); cpuAim = -1; parade = null; resShown = false; fleet = new[] { Mk(), Mk() }; shots = new[] { new HashSet<int>(), new HashSet<int>() }; cur = 0; ph = Ph.Setup; sel = -1; horiz = true; mark.Clear(); sink.Clear(); sunkFx.Clear(); Fx.Clear(); Modal = null; busy = false;
             if (VsCpu) PlaceRandom(1);   // Computer-Flotte zufaellig und verdeckt
             BuildUi(); status = $"{PName(0)}: Schiffe platzieren";
         }

@@ -72,10 +72,10 @@ namespace GlamourGames
         }
 
         /// <summary>Fuegt einen Button "Gegner: ..." hinzu, der die Auswahl erneut oeffnet und dann restart aufruft.</summary>
-        public static Button AddSwitch(Scene s, string key, float x, float y, float w, float h, Action restart, string humanLabel = "2 Spieler")
+        public static Button AddSwitch(Scene s, string key, float x, float y, float w, float h, Action restart, string humanLabel = "2 Spieler", string humanSub = "an einem PC")
         {
             Button b = null;
-            b = s.Ui.Add(new Button(x, y, w, h, "", C.Cyan, () => Pick(s, key, o => { s.Opp = o; restart(); }, humanLabel), 20));
+            b = s.Ui.Add(new Button(x, y, w, h, "", C.Cyan, () => Pick(s, key, o => { s.Opp = o; restart(); }, humanLabel, humanSub), 20));
             b.Custom = (c, r, hv) =>
             {
                 Gfx.Text(c, "GEGNER", r.MidX, r.Top + 18, 15, C.Dim, Al.C, true);
