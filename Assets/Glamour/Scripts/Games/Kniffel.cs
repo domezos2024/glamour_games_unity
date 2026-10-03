@@ -16,7 +16,12 @@ namespace GlamourGames
             ("3k", "3er Pasch", false), ("4k", "4er Pasch", false), ("fh", "Full House", false), ("ss", "Kleine Straße", false), ("ls", "Große Straße", false), ("yz", "Kniffel", false), ("ch", "Chance", false) };
         // Reihenfolge der KI-Kategorien (KniffelAI) -> Schlüssel
         static readonly string[] CatKeys = { "1", "2", "3", "4", "5", "6", "3k", "4k", "fh", "ss", "ls", "yz", "ch" };
-        class Die { public int V = 1; public bool Held; public float T = 1, Dur = 1, Spins, Rz, Bounce, Jit; public float[] Axis = { 1, 0, 0 }; public Spring Lift = new Spring(0) { K = 300, D = 22 }; }
+        class Die { public int V = 1; public bool Held; public float T = 1, Dur = 1, Spins, Rz, Bounce, Jit; public float[] Axis = { 1, 0, 0 }; public Spring Lift = new Spring(0) { K = 300, D = 22 }; public DiceTrack Track; public int HitI; public System.Numerics.Quaternion Rest = DicePhysics.RestRotation(1, -.42f); }
+        static bool Physical => Die3D.RenderTray != null;
+        // Tischszene: 112 Designeinheiten = 1 Wuerfelkante, Weltmitte = Mitte der Wuerfelreihe (430, 400)
+        const float DieUnits = 112;
+        static System.Numerics.Vector3 Slot3D(int i) => new System.Numerics.Vector3((DieRect(i).MidX - 430) / DieUnits, .5f, 0);
+        static void ResetDie(Die d, int i) { d.Held = false; d.V = 1; d.T = 1; d.Track = null; d.Rest = DicePhysics.RestRotation(1, -.42f + (i - 2) * .05f); }
         readonly Die[] dice = Enumerable.Range(0, 5).Select(_ => new Die()).ToArray();
         Dictionary<string, int>[] card = { new Dictionary<string, int>(), new Dictionary<string, int>() }; int cur, rolls; bool over, rolling; Button roll, newBtn, oppBtn; DiceParade parade; bool resShown; int hoverRow = -1, hoverDie = -1;
         // Generationszähler: geplante Computeraktionen eines alten Spiels verfallen
@@ -34,7 +39,7 @@ namespace GlamourGames
         }
         public override void DebugWin() { Modal = null; parade = new DiceParade(this, 0, new[] { C.Cyan, C.Pink }, new[] { PName(0), PName(1) }, new[] { 200, 150 }); }
         void NewMatch() { NewGame(); CoinToss.Start(this, f => cur = f); }
-        void NewGame() { gen++; CancelCpuThink(); cpuBusy = false; selRow = -1; card = new Dictionary<string, int>[] { new Dictionary<string, int>(), new Dictionary<string, int>() }; cur = 0; rolls = 0; over = false; Modal = null; parade = null; resShown = false; Fx.Clear(); foreach (var d in dice) { d.Held = false; d.V = 1; d.T = 1; } }
+        void NewGame() { gen++; CancelCpuThink(); cpuBusy = false; selRow = -1; card = new Dictionary<string, int>[] { new Dictionary<string, int>(), new Dictionary<string, int>() }; cur = 0; rolls = 0; over = false; Modal = null; parade = null; resShown = false; Fx.Clear(); for (int i = 0; i < 5; i++) ResetDie(dice[i], i); }
         int Calc(string k, int[] v) => KniffelAI.Score(Array.IndexOf(CatKeys, k), v);
         int selRow = -1;
         int Total(int p) => card[p].Values.Sum();
@@ -49,7 +54,8 @@ namespace GlamourGames
             for (int i = 0; i < 5; i++)
             {
                 var d = dice[i]; if (d.Held) continue;
-                d.V = rnd.Next(1, 7); d.T = 0; d.Dur = .9f + i * .09f; d.Spins = 2 + rnd.Next(3); d.Rz = rnd.Next(4) * MathF.PI / 2 + (rnd.NextSingle() - .5f) * .3f; d.Bounce = 90 + rnd.Next(60); d.Jit = (rnd.NextSingle() - .5f) * 30;
+                d.V = rnd.Next(1, 7); d.T = 0; d.Dur = .9f + i * .09f;
+                if (Physical) { d.Track = DicePhysics.Throw(new Random(rnd.Next()), Slot3D(i), d.V); d.Dur = d.Track.Duration; d.HitI = 0; d.Rest = d.Track.Rot[d.Track.Rot.Length - 1]; } d.Spins = 2 + rnd.Next(3); d.Rz = rnd.Next(4) * MathF.PI / 2 + (rnd.NextSingle() - .5f) * .3f; d.Bounce = 90 + rnd.Next(60); d.Jit = (rnd.NextSingle() - .5f) * 30;
                 var a = new[] { rnd.NextSingle() - .5f, rnd.NextSingle() - .5f, rnd.NextSingle() - .5f + .2f }; d.Axis = a;
             }
         }
@@ -86,7 +92,7 @@ namespace GlamourGames
             if (UpperSum(cur) >= 63 && !card[cur].ContainsKey("bonus")) { card[cur]["bonus"] = 35; Pop("BONUS +35", 1200, 130, C.Green, 46); Sfx.Play(S.Win); }
             else if (Cats.Where(c => c.upper && c.key != "bonus").All(c => card[cur].ContainsKey(c.key)) && !card[cur].ContainsKey("bonus")) { card[cur]["bonus"] = 0; }
             if (card[0].Count(kv => kv.Key != "bonus") == 13 && card[1].Count(kv => kv.Key != "bonus") == 13) { End(); return; }
-            cur = 1 - cur; rolls = 0; foreach (var d in dice) { d.Held = false; d.T = 1; d.V = 1; }
+            cur = 1 - cur; rolls = 0; for (int i = 0; i < 5; i++) ResetDie(dice[i], i);
         }
         void End()
         {
@@ -138,7 +144,14 @@ namespace GlamourGames
             parade?.Update(dt); newBtn.Visible = oppBtn.Visible = parade == null; rolling = false;
             for (int i = 0; i < 5; i++)
             {
-                var d = dice[i]; if (d.T < d.Dur) { d.T += dt; rolling = true; if (d.T >= d.Dur) { d.T = d.Dur; var r = DieRect(i); Fx.Spark(r.MidX, r.Bottom, C.Orange, 10, 160); Fx.Smoke(r.MidX, r.Bottom - 10, 2, 8, 20, .8f); Sfx.Play(S.Stop, .35f, 1.2f); } }
+                var d = dice[i];
+                if (d.T < d.Dur)
+                {
+                    d.T += dt; rolling = true;
+                    // Aufprall-Geraeusche synchron zur simulierten Bahn
+                    if (d.Track != null) while (d.HitI < d.Track.Hits.Count && d.Track.Hits[d.HitI].t <= d.T) { var h = d.Track.Hits[d.HitI++]; Sfx.Play(S.Stop, .12f + .4f * h.s, 1.15f + .3f * (1 - h.s)); }
+                    if (d.T >= d.Dur) { d.T = d.Dur; if (d.Track == null) { var r = DieRect(i); Fx.Spark(r.MidX, r.Bottom, C.Orange, 10, 160); Fx.Smoke(r.MidX, r.Bottom - 10, 2, 8, 20, .8f); Sfx.Play(S.Stop, .35f, 1.2f); } }
+                }
                 d.Lift.Target = d.Held ? -26 : 0; d.Lift.Update(dt);
             }
             CpuDrive();
@@ -161,6 +174,30 @@ namespace GlamourGames
             Gfx.Stroke(c, felt, 22, Col.Black.A(.5f), 3); Gfx.Stroke(c, Gfx.Inflate(felt, -6), 18, C.Green.A(.28f), 2);
             Gfx.Light(c, felt.MidX, felt.MidY - 50, 380, new Col(255, 240, 200), .06f, 1.2f);
             Gfx.Text(c, CpuTurn ? "Der Computer ist am Zug ..." : selRow >= 0 ? "Zeile anklicken = abwählen, grüner Knopf = eintragen" : "Klicke auf Würfel oder Tasten 1-5, um sie zu halten  -  Leertaste würfelt", 430, 560, 22, CpuTurn ? C.Pink.Light(.4f) : C.Dim, Al.C, false);
+            if (Physical)
+            {
+                var arr = new Die3D.TrayDie[5];
+                for (int i = 0; i < 5; i++)
+                {
+                    var d = dice[i]; var r = DieRect(i);
+                    if (d.Held) Gfx.Light(c, r.MidX, r.MidY + d.Lift.V, 115, C.Green, .32f, 1.7f);
+                    System.Numerics.Vector3 p; System.Numerics.Quaternion q;
+                    if (d.Track != null && d.T < d.Dur) d.Track.Sample(d.T, out p, out q); else { p = Slot3D(i); q = d.Rest; }
+                    p.Y += -d.Lift.V / DieUnits;
+                    arr[i] = new Die3D.TrayDie { Pos = p, Rot = q, Body = d.Held ? new Col(255, 250, 230) : new Col(246, 236, 214), Pip = new Col(30, 18, 30) };
+                }
+                if (Die3D.RenderTray(c, new Box(felt.Left - 40, felt.Top - 200, felt.Right + 40, felt.Bottom + 24), new Pt(430, 400), DieUnits, arr))
+                {
+                    for (int i = 0; i < 5; i++)
+                    {
+                        var d = dice[i]; var r = DieRect(i);
+                        if (d.Held) Gfx.Text(c, "GEHALTEN", r.MidX, r.Bottom + 34, 20, C.Green, Al.C, true, 6); else if (rolls > 0) Gfx.Text(c, "halten", r.MidX, r.Bottom + 34, 18, C.Dim.A(hoverDie == i ? 1 : .5f), Al.C, false);
+                        if (i == hoverDie && rolls > 0 && !rolling) Gfx.Glow(c, Gfx.Inflate(r, -6), 20, C.Green, 10, .6f);
+                    }
+                    DrawTable(c); parade?.Draw(c);
+                    return;
+                }
+            }
             for (int i = 0; i < 5; i++)
             {
                 var d = dice[i]; var r = DieRect(i); float t = Ease.Clamp(d.T / d.Dur), e = Ease.OutCubic(t);

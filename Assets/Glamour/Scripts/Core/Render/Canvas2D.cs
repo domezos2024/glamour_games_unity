@@ -129,7 +129,7 @@ namespace GlamourGames
     /// </summary>
     public sealed class Canvas2D
     {
-        public const int SOLID = 0, RRECT = 1, ELLIPSE = 2, RADIAL = 3, BALL = 4, IMAGE = 5, GLYPH = 6, STRIP = 7, PERFORATED = 8, ARC = 9, DICE = 10, ROD = 11, GRAIN = 12, WATER = 13, DISC = 14;
+        public const int SOLID = 0, RRECT = 1, ELLIPSE = 2, RADIAL = 3, BALL = 4, IMAGE = 5, GLYPH = 6, STRIP = 7, PERFORATED = 8, ARC = 9, DICE = 10, ROD = 11, GRAIN = 12, WATER = 13, DISC = 14, TRAY = 15;
 
         struct State { public Aff M; public Vector4 Clip; public float ClipR; public float Alpha; }
         static readonly Vector4 NoClip = new Vector4(-1e5f, -1e5f, 1e5f, 1e5f);
@@ -271,6 +271,8 @@ namespace GlamourGames
         public void DrawBall(float x, float y, float r, Paint p, float metal = 0, float rough = 0) { if (r > 0) Shape(BALL, x, y, 1, 0, r, r, r, p, new Vector4(metal, rough, 0, 0), Vector4.zero); }
         /// <summary>Liegender Zylinder mit runden Enden (Stab, Barren), physikalisch beleuchtet.</summary>
         public void DrawRod(Box r, float rad, Paint p, float metal, float rough) => Shape(ROD, r.MidX, r.MidY, 1, 0, r.Width / 2, r.Height / 2, rad, p, new Vector4(metal, rough, 0, 0), Vector4.zero);
+        /// <summary>Gesamtbild der 3D-Tischszene (vormultipliziertes Alpha) in ein Zielrechteck.</summary>
+        public void DrawTray(Box dst, Paint p) => Shape(TRAY, dst.MidX, dst.MidY, 1, 0, dst.Width / 2, dst.Height / 2, 0, p, Vector4.zero, Vector4.zero, new Vector4(0, 1, 1, 0));
         /// <summary>Spielstein-Scheibe (Vier Gewinnt, Chips) mit Rand und Rillen.</summary>
         public void DrawDisc(float x, float y, float r, Paint p, float rough = 0) { if (r > 0) Shape(DISC, x, y, 1, 0, r, r, r, p, new Vector4(0, rough, 0, 0), Vector4.zero); }
         /// <summary>Animierte Wasserflaeche (time in Sekunden).</summary>
@@ -297,7 +299,7 @@ namespace GlamourGames
         {
             float sw = p.Stroke ? Math.Max(.01f, p.StrokeWidth) : 0, blur = Math.Max(0, p.Blur);
             float pad = blur * 3f + sw * .5f + 2f / Math.Max(.05f, Math.Min(m.ScaleX, m.ScaleY));
-            if (type == IMAGE || type == DICE) pad = 0;
+            if (type == IMAGE || type == DICE || type == TRAY) pad = 0;
             if (type == ARC) pad += 0;
             float ex = hw + pad, ey = hh + pad;
             var shp = new Vector4(hw, hh, rad, sw);
@@ -308,7 +310,7 @@ namespace GlamourGames
                 float lx = (k == 0 || k == 3) ? -ex : ex, ly = k < 2 ? -ey : ey;
                 float ox = cx + ax * lx + bx * ly, oy = cy + ay * lx + by * ly;
                 Vector4 u0 = new Vector4(lx, ly, 0, 0);
-                if (type == IMAGE || type == DICE) { u0.z = lx < 0 ? tex.x : tex.z; u0.w = ly < 0 ? tex.y : tex.w; }
+                if (type == IMAGE || type == DICE || type == TRAY) { u0.z = lx < 0 ? tex.x : tex.z; u0.w = ly < 0 ? tex.y : tex.w; }
                 Vert(ox, oy, u0, shp, type, blur, p, extra, tng);
             }
             Tri(baseV);

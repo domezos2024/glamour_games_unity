@@ -71,15 +71,88 @@ namespace GlamourGames
                 g.SetActive(false); dice[i] = g.transform; rends[i] = r;
             }
             coinMesh = BuildCoinMesh();
-            Die3D.Render3D = Render; Coin3D.Render3D = RenderCoin; Die3D.FrameBegin = () => used = 0; Die3D.FrameEnd = EndFrame;
+            SetupTray(root, main);
+            Die3D.Render3D = Render; Coin3D.Render3D = RenderCoin; Die3D.RenderTray = RenderTray; Die3D.FrameBegin = () => used = 0; Die3D.FrameEnd = EndFrame;
             cam.enabled = false;
             Log.I("dice3d bereit");
         }
 
+        static Light keyLight;
         static void Light(GameObject root, string name, Vector3 dir, Color col, float intensity)
         {
             var g = new GameObject(name + " Light"); g.transform.SetParent(root.transform, false); g.transform.rotation = Quaternion.LookRotation(dir.normalized);
-            var l = g.AddComponent<Light>(); l.type = LightType.Directional; l.color = col; l.intensity = intensity; l.shadows = LightShadows.None; l.cullingMask = 1 << Layer;
+            var l = g.AddComponent<Light>(); l.type = LightType.Directional; l.color = col; l.intensity = intensity; l.shadows = LightShadows.None; l.cullingMask = (1 << Layer) | (1 << TrayLayer);
+            if (name == "Key") { keyLight = l; l.shadows = LightShadows.Soft; l.shadowStrength = 1; l.shadowBias = .04f; l.shadowNormalBias = .3f; RenderSettings.sun = l; }
+        }
+
+        // ------------------------------------------------------------------ 3D-Tischszene (Kniffel): Perspektive, echte Schatten
+        const int TrayLayer = 30;
+        static Camera trayCam; static RenderTexture trayRt; static Transform[] trayDice; static MeshRenderer[] trayRends; static Material catcherMat; static int trayUsedFrame = -1;
+        static void SetupTray(GameObject root, Camera main)
+        {
+            main.cullingMask &= ~(1 << TrayLayer);
+            main.GetUniversalAdditionalCameraData().renderShadows = false;
+            if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset ua) { ua.shadowDistance = 24; ua.shadowDepthBias = .6f; ua.shadowNormalBias = .4f; }
+            var cg = new GameObject("Tray Camera"); cg.transform.SetParent(root.transform, false);
+            trayCam = cg.AddComponent<Camera>();
+            trayCam.clearFlags = CameraClearFlags.SolidColor; trayCam.backgroundColor = new Color(0, 0, 0, 0); trayCam.cullingMask = 1 << TrayLayer;
+            trayCam.allowHDR = false; trayCam.allowMSAA = true; trayCam.depth = main.depth - 2; trayCam.nearClipPlane = 1; trayCam.farClipPlane = 60; trayCam.useOcclusionCulling = false;
+            var td = trayCam.GetUniversalAdditionalCameraData(); td.renderPostProcessing = false; td.antialiasing = AntialiasingMode.None; td.renderShadows = true;
+            trayCam.enabled = false;
+            trayDice = new Transform[5]; trayRends = new MeshRenderer[5];
+            for (int i = 0; i < 5; i++)
+            {
+                var g = new GameObject("Tray Die " + i) { layer = TrayLayer }; g.transform.SetParent(root.transform, false); g.transform.localScale = Vector3.one * .5f;
+                g.AddComponent<MeshFilter>().sharedMesh = mesh;
+                var r = g.AddComponent<MeshRenderer>(); r.sharedMaterial = baseMat; r.shadowCastingMode = ShadowCastingMode.On; r.receiveShadows = true;
+                r.reflectionProbeUsage = ReflectionProbeUsage.BlendProbes; r.lightProbeUsage = LightProbeUsage.Off;
+                trayDice[i] = g.transform; trayRends[i] = r; g.SetActive(false);
+            }
+            var cs = Resources.Load<Shader>("Glamour/Shaders/GlamourShadowCatcher");
+            if (cs != null)
+            {
+                catcherMat = new Material(cs) { name = "ShadowCatcher" };
+                var fl = GameObject.CreatePrimitive(PrimitiveType.Quad); fl.name = "Tray Floor"; fl.layer = TrayLayer; fl.transform.SetParent(root.transform, false);
+                UnityEngine.Object.Destroy(fl.GetComponent<Collider>());
+                fl.transform.rotation = Quaternion.Euler(90, 0, 0); fl.transform.localScale = new Vector3(40, 40, 1);
+                var fr = fl.GetComponent<MeshRenderer>(); fr.sharedMaterial = catcherMat; fr.shadowCastingMode = ShadowCastingMode.Off; fr.receiveShadows = true;
+            }
+        }
+
+        static readonly Vector4[] blobs = new Vector4[8];
+        static bool RenderTray(Canvas2D c, Box view, Pt center, float units, Die3D.TrayDie[] ds)
+        {
+            if (trayCam == null || catcherMat == null) return false;
+            // Render-Textur in Bildschirmaufloesung (scharf bei jeder Fenstergroesse)
+            float k = Mathf.Clamp(Screen.height / 900f, 1f, 2.5f);
+            int w = Mathf.Max(64, Mathf.RoundToInt(view.Width * k)), h = Mathf.Max(64, Mathf.RoundToInt(view.Height * k));
+            if (trayRt == null || trayRt.width != w || trayRt.height != h || !trayRt.IsCreated())
+            {
+                if (trayRt != null) { trayCam.targetTexture = null; trayRt.Release(); UnityEngine.Object.Destroy(trayRt); }
+                trayRt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { name = "GlamourTrayRT", antiAliasing = 8 };
+                trayRt.Create(); trayCam.targetTexture = trayRt; shapeMat.SetTexture("_TrayTex", trayRt);
+            }
+            // Tele-Perspektive (wenig Verzerrung, filmischer Blick schraeg von oben); Bildmitte = Mitte von 'view'
+            const float pitch = 29f, dist = 11f;
+            var rotC = Quaternion.Euler(pitch, 0, 0); var fwd = rotC * Vector3.forward; var up = rotC * Vector3.up;
+            float halfH = view.Height / 2 / units;
+            float offY = (center.Y - view.MidY) / units, offX = (view.MidX - center.X) / units;
+            var look = new Vector3(offX, .5f, 0) + up * offY;
+            trayCam.transform.SetPositionAndRotation(look - fwd * dist, rotC);
+            trayCam.fieldOfView = 2 * Mathf.Atan(halfH / dist) * Mathf.Rad2Deg; trayCam.aspect = view.Width / view.Height;
+            int n = Math.Min(ds.Length, trayDice.Length);
+            for (int i = 0; i < trayDice.Length; i++)
+            {
+                bool on = i < n; if (trayDice[i].gameObject.activeSelf != on) trayDice[i].gameObject.SetActive(on);
+                if (!on) continue;
+                var d = ds[i]; var p = new Vector3(d.Pos.X, d.Pos.Y, d.Pos.Z); var q = new Quaternion(d.Rot.X, d.Rot.Y, d.Rot.Z, d.Rot.W);
+                trayDice[i].SetPositionAndRotation(p, q); trayRends[i].sharedMaterial = MaterialFor(d.Body, d.Pip);
+                blobs[i] = new Vector4(p.x, p.y, p.z, .62f);
+            }
+            catcherMat.SetVectorArray("_Blobs", blobs); catcherMat.SetFloat("_BlobCount", n);
+            trayCam.enabled = true; trayUsedFrame = Time.frameCount;
+            c.DrawTray(view, Gfx.Fill(Col.White));
+            return true;
         }
 
         static Vector3 TileCenter(int i) => new Vector3(-Cols * TileW / 2 + TileW * (i % Cols + .5f), Rows * TileW / 2 - TileW * (i / Cols + .5f), 0);
@@ -88,6 +161,7 @@ namespace GlamourGames
         {
             for (int i = used; i < dice.Length; i++) if (dice[i].gameObject.activeSelf) dice[i].gameObject.SetActive(false);
             if (cam != null) cam.enabled = used > 0;
+            if (trayCam != null && trayUsedFrame != Time.frameCount) { trayCam.enabled = false; foreach (var t in trayDice) if (t.gameObject.activeSelf) t.gameObject.SetActive(false); }
             if (rt != null && !rt.IsCreated()) { rt.Create(); shapeMat.SetTexture("_DiceTex", rt); }
         }
 

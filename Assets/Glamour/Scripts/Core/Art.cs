@@ -117,6 +117,10 @@ namespace GlamourGames
         /// <summary>Echte 3D-Darstellung (URP-Modul): zeichnet den Wuerfel und liefert true, sonst wird die 2D-Variante genutzt.</summary>
         public static Func<Canvas2D, float, float, float, float[], Col, Col, bool> Render3D;
         public static Action FrameBegin, FrameEnd;
+        /// <summary>Wuerfel einer echten 3D-Tischszene (Unity-Achsen, Kantenlaenge 1, Tisch bei y = 0).</summary>
+        public struct TrayDie { public System.Numerics.Vector3 Pos; public System.Numerics.Quaternion Rot; public Col Body, Pip; }
+        /// <summary>3D-Tischszene (URP-Modul): (Canvas, Bildbereich, Designpunkt der Weltmitte, Designeinheiten je Welteinheit, Wuerfel) -> true wenn gezeichnet.</summary>
+        public static Func<Canvas2D, Box, Pt, float, TrayDie[], bool> RenderTray;
         public static readonly int[] FaceValues = faceVal;
         public static float[] Normal(int i) => nrm[i];
         public static float[] UAxis(int i) => uax[i];
