@@ -99,6 +99,7 @@ namespace GlamourGames
                 if (a.StartsWith("--scene=")) int.TryParse(a.Substring(8), out startScene);
                 else if (a.StartsWith("--shot=")) shotPath = a.Substring(7);
                 else if (a.StartsWith("--at=")) float.TryParse(a.Substring(5), NumberStyles.Float, ci, out shotAt);
+                else if (a.StartsWith("--skip=")) int.TryParse(a.Substring(7), out Opponents.Skip);
             }
             if (Save.Int("fullscreen", 0) == 1 && !Application.isEditor) Screen.SetResolution(Display.main.systemWidth, Display.main.systemHeight, FullScreenMode.FullScreenWindow);
             cur = startScene >= 0 && startScene < Registry.All.Count ? Registry.All[startScene].Make() : new Menu();

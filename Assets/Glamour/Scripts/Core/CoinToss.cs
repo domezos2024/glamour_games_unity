@@ -7,6 +7,7 @@ namespace GlamourGames
     {
         public static void Start(Scene s, Action<int> done)
         {
+            if (Opponents.Skip > 1) { done(0); return; }
             int choice = -1, res = 0, first = 0; float t0 = 0; bool fin = false, moving = false; float ang = 0, lift = 0;
             var m = new Modal { Title = "Münzwurf", Col = C.Gold, W = 860, H = 640 };
             m.Sub = $"{s.PName(0)} wählt: Kopf oder Zahl";
