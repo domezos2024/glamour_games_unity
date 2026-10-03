@@ -14,7 +14,7 @@ namespace GlamourGames
     /// </summary>
     public static class DiceRig
     {
-        const int Layer = 31, Cols = 4, Rows = 2, TilePx = 448, TexTile = 256;
+        const int Layer = 31, Cols = 4, Rows = 3, TilePx = 448, TexTile = 256;
         const float TileW = 4f, Bevel = .2f;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -72,6 +72,7 @@ namespace GlamourGames
             }
             coinMesh = BuildCoinMesh();
             SetupTray(root, main);
+            Chip3D.Render3D = RenderChips;
             Die3D.Render3D = Render; Coin3D.Render3D = RenderCoin; Die3D.RenderTray = RenderTray; Die3D.FrameBegin = () => used = 0; Die3D.FrameEnd = EndFrame;
             cam.enabled = false;
             Log.I("dice3d bereit");
@@ -175,6 +176,89 @@ namespace GlamourGames
             float u0 = (i % Cols) / (float)Cols, v0 = 1 - (i / Cols) / (float)Rows, span = TileW * unitsPerWorld;
             c.DrawDice(Gfx.Ctr(cx, cy, span, span), new Vector4(u0, v0, u0 + 1f / Cols, v0 - 1f / Rows), Gfx.Fill(Col.White));
             return true;
+        }
+
+        // ------------------------------------------------------------------ Casino-Chips
+        const float ChipH = .085f;
+        static readonly Dictionary<int, Mesh> chipMeshes = new Dictionary<int, Mesh>();
+        static readonly Dictionary<(uint, uint), Material[]> chipMats = new Dictionary<(uint, uint), Material[]>();
+        static bool RenderChips(Canvas2D c, float x, float y, float r, int n, Col a, Col b)
+        {
+            n = Mathf.Clamp(n, 1, 10);
+            if (!chipMeshes.TryGetValue(n, out var m)) chipMeshes[n] = m = BuildChipStack(n);
+            var k = (Key(a), Key(b));
+            if (!chipMats.TryGetValue(k, out var ms)) { var fa = ChipMat(a, true); var sa = ChipMat(a, false); var fb = ChipMat(b, true); var sb2 = ChipMat(b, false); chipMats[k] = ms = new[] { fa, sa, fb, sb2 }; }
+            return Place(c, x, y, r, m, ms, Quaternion.Euler(-24, 0, 0) * Quaternion.Euler(0, n * 37f, 0));
+        }
+        static Material ChipMat(Col col, bool face)
+        {
+            var mt = new Material(baseMat) { name = "Chip " + (face ? "Face" : "Side") };
+            mt.SetTexture("_BaseMap", face ? ChipFaceTex(col) : ChipSideTex(col)); mt.SetColor("_BaseColor", Color.white);
+            mt.SetTexture("_BumpMap", FlatNormal()); mt.EnableKeyword("_NORMALMAP"); mt.SetFloat("_Metallic", 0f); mt.SetFloat("_Smoothness", .52f);
+            return mt;
+        }
+        static Color ToC(Col c) => new Color(c.Red / 255f, c.Green / 255f, c.Blue / 255f);
+        static Texture2D ChipFaceTex(Col col)
+        {
+            const int S = 256; var px = new Color32[S * S]; var bc = ToC(col); var wc = new Color(.96f, .95f, .92f); var rng = new System.Random(col.Red * 7 + col.Green * 13 + col.Blue);
+            for (int y = 0; y < S; y++)
+                for (int x = 0; x < S; x++)
+                {
+                    float u = (x + .5f) / S * 2 - 1, v = (y + .5f) / S * 2 - 1, rr = Mathf.Sqrt(u * u + v * v), ang = Mathf.Atan2(v, u) / (Mathf.PI * 2) + .5f;
+                    float grain = 1 + ((float)rng.NextDouble() - .5f) * .06f;
+                    Color c = bc * grain;
+                    bool spot = rr > .78f && Mathf.Repeat(ang * 8 + .5f, 1) < .28f;
+                    if (spot) c = wc * grain;
+                    if (Mathf.Abs(rr - .64f) < .018f) c = Color.Lerp(c, wc, .85f);
+                    if (rr < .55f) { c = Color.Lerp(bc, wc, .35f) * grain; if (Mathf.Abs(rr - .5f) < .012f) c = bc * .7f; }
+                    if (rr > .97f) c *= .8f;
+                    c.a = 1; px[y * S + x] = c;
+                }
+            var t = new Texture2D(S, S, TextureFormat.RGBA32, true, false) { name = "ChipFace", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Trilinear, anisoLevel = 8 };
+            t.SetPixels32(px); t.Apply(true, true); return t;
+        }
+        static Texture2D ChipSideTex(Col col)
+        {
+            const int W = 512, H = 8; var px = new Color32[W * H]; var bc = ToC(col); var wc = new Color(.96f, .95f, .92f);
+            for (int x = 0; x < W; x++) { float ang = (x + .5f) / W; bool spot = Mathf.Repeat(ang * 8 + .5f, 1) < .28f; var c = spot ? wc : bc; c.a = 1; for (int y = 0; y < H; y++) px[y * W + x] = c; }
+            var t = new Texture2D(W, H, TextureFormat.RGBA32, true, false) { name = "ChipSide", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 8 };
+            t.SetPixels32(px); t.Apply(true, true); return t;
+        }
+        static Mesh BuildChipStack(int n)
+        {
+            const int S = 72; var rng = new System.Random(n * 977);
+            var pos = new List<Vector3>(); var nor = new List<Vector3>(); var uv = new List<Vector2>(); var tan = new List<Vector4>();
+            var sub = new[] { new List<int>(), new List<int>(), new List<int>(), new List<int>() };
+            void Tri(int s, int a, int b2, int c2, Vector3 outward)
+            {
+                if (Vector3.Dot(Vector3.Cross(pos[b2] - pos[a], pos[c2] - pos[a]), outward) < 0) { var x = b2; b2 = c2; c2 = x; }
+                sub[s].Add(a); sub[s].Add(b2); sub[s].Add(c2);
+            }
+            for (int ci = 0; ci < n; ci++)
+            {
+                var off = new Vector3(((float)rng.NextDouble() - .5f) * .07f, ci * ChipH * 2.02f + ChipH, ((float)rng.NextDouble() - .5f) * .07f);
+                var yaw = Quaternion.Euler(0, (float)rng.NextDouble() * 360, 0); int fs = (ci % 2) * 2, ss = fs + 1;
+                for (int side = 0; side < 2; side++)
+                {
+                    float yy = side == 0 ? ChipH : -ChipH; var ny = new Vector3(0, side == 0 ? 1 : -1, 0); int c0 = pos.Count;
+                    pos.Add(off + new Vector3(0, yy, 0)); nor.Add(ny); uv.Add(new Vector2(.5f, .5f)); tan.Add(new Vector4(1, 0, 0, 1));
+                    for (int k = 0; k <= S; k++)
+                    {
+                        float a = k * Mathf.PI * 2 / S; var pl = yaw * new Vector3(Mathf.Cos(a), 0, Mathf.Sin(a));
+                        pos.Add(off + pl + new Vector3(0, yy, 0)); nor.Add(ny); uv.Add(new Vector2((Mathf.Cos(a) + 1) / 2, (Mathf.Sin(a) + 1) / 2)); tan.Add(new Vector4(1, 0, 0, 1));
+                    }
+                    for (int k = 0; k < S; k++) Tri(fs, c0, c0 + 1 + k, c0 + 2 + k, ny);
+                }
+                int rb = pos.Count;
+                for (int k = 0; k <= S; k++)
+                {
+                    float a = k * Mathf.PI * 2 / S; var dir = yaw * new Vector3(Mathf.Cos(a), 0, Mathf.Sin(a));
+                    for (int j = 0; j < 2; j++) { pos.Add(off + dir + new Vector3(0, j == 0 ? ChipH : -ChipH, 0)); nor.Add(dir); uv.Add(new Vector2(k / (float)S, j)); tan.Add(new Vector4(-dir.z, 0, dir.x, 1)); }
+                }
+                for (int k = 0; k < S; k++) { int q = rb + k * 2; Tri(ss, q, q + 2, q + 1, nor[q]); Tri(ss, q + 1, q + 2, q + 3, nor[q]); }
+            }
+            var m = new Mesh { name = "ChipStack" + n }; m.SetVertices(pos); m.SetNormals(nor); m.SetUVs(0, uv); m.SetTangents(tan);
+            m.subMeshCount = 4; for (int s = 0; s < 4; s++) m.SetTriangles(sub[s], s); m.RecalculateBounds(); return m;
         }
 
         static Mesh coinMesh; static Material[] coinMats;

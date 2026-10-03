@@ -170,6 +170,26 @@ namespace GlamourGames
         }
     }
 
+    /// <summary>Casino-Chipstapel (echtes 3D ueber das URP-Modul, sonst 2D-Ellipsen).</summary>
+    public static class Chip3D
+    {
+        /// <summary>(c, x, y, Radius, Anzahl, Farbe gerade, Farbe ungerade) -> true wenn gezeichnet.</summary>
+        public static Func<Canvas2D, float, float, float, int, Col, Col, bool> Render3D;
+        /// <summary>Stapel mit n Chips; (x, y) = Mitte des untersten Chips, r = Chip-Radius in Designeinheiten.</summary>
+        public static void Stack(Canvas2D c, float x, float y, float r, int n, Col a, Col b)
+        {
+            if (n <= 0) return;
+            var sh = Gfx.Fill(Col.Black.A(.45f)); sh.Blur = r * .25f; c.DrawOval(x + r * .12f, y + r * .32f, r * 1.12f, r * .45f, sh);
+            if (Render3D != null && Render3D(c, x, y, r, n, a, b)) return;
+            for (int k = 0; k < n; k++)
+            {
+                var col = k % 2 == 0 ? a : b; float cy = y - k * r * .23f;
+                c.DrawOval(x, cy + 3, r, r * .41f, Gfx.Fill(col.Dark(.4f))); c.DrawOval(x, cy, r, r * .41f, Gfx.Fill(col));
+                c.DrawOval(x, cy, r * .55f, r * .23f, Gfx.Line(Col.White.A(.6f), 1.2f));
+            }
+        }
+    }
+
     /// <summary>3D-Muenze fuer den Muenzwurf.</summary>
     public static class Coin3D
     {

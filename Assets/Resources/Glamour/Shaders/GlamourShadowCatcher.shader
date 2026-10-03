@@ -4,7 +4,7 @@ Shader "Glamour/ShadowCatcher"
 {
     Properties
     {
-        _ShadowStrength ("Shadow Strength", Range(0, 1)) = 0.72
+        _ShadowStrength ("Shadow Strength", Range(0, 1)) = 0.8
         _AOStrength ("AO Strength", Range(0, 1)) = 0.6
     }
     SubShader

@@ -19,7 +19,7 @@ namespace GlamourGames
         class Die { public int V = 1; public bool Held; public float T = 1, Dur = 1, Spins, Rz, Bounce, Jit; public float[] Axis = { 1, 0, 0 }; public Spring Lift = new Spring(0) { K = 300, D = 22 }; public DiceTrack Track; public int HitI; public System.Numerics.Quaternion Rest = DicePhysics.RestRotation(1, -.42f); }
         static bool Physical => Die3D.RenderTray != null;
         // Tischszene: 112 Designeinheiten = 1 Wuerfelkante, Weltmitte = Mitte der Wuerfelreihe (430, 400)
-        const float DieUnits = 112;
+        const float DieUnits = 96;
         static System.Numerics.Vector3 Slot3D(int i) => new System.Numerics.Vector3((DieRect(i).MidX - 430) / DieUnits, .5f, 0);
         static void ResetDie(Die d, int i) { d.Held = false; d.V = 1; d.T = 1; d.Track = null; d.Rest = DicePhysics.RestRotation(1, -.42f + (i - 2) * .05f); }
         readonly Die[] dice = Enumerable.Range(0, 5).Select(_ => new Die()).ToArray();

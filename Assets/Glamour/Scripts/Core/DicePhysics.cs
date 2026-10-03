@@ -107,9 +107,15 @@ namespace GlamourGames
             for (int k = 1; k <= blend; k++) { float e = k / (float)blend; e = e * e * (3 - 2 * e); rot.Add(Quaternion.Slerp(qEnd, qFlat, e)); pos.Add(Vector3.Lerp(pos[pos.Count - 1], pEnd, e)); }
             // Lokale Umbeschriftung: Flaeche 'value' an die Stelle der oben liegenden Flaeche drehen
             var relabel = FromTo(FaceNormal(value), FaceNormal(upVal));
-            var shift = target - pEnd; shift.Y = 0;
+            // Bahnen angleichen: alle Wuerfel legen etwa denselben Weg zurueck (rollen parallel in ihren Bahnen, ohne sich zu durchdringen)
+            float travel = Math.Max(.3f, pEnd.X - pos[0].X), kx = Math.Clamp(2.4f / travel, .55f, 1.8f);
             tr.Pos = new Vector3[pos.Count]; tr.Rot = new Quaternion[rot.Count];
-            for (int k = 0; k < pos.Count; k++) { tr.Pos[k] = pos[k] + shift; tr.Rot[k] = Quaternion.Normalize(rot[k] * relabel); }
+            for (int k = 0; k < pos.Count; k++)
+            {
+                var d = pos[k] - pEnd;
+                tr.Pos[k] = new Vector3(target.X + d.X * kx, pos[k].Y, target.Z + d.Z * .45f);
+                tr.Rot[k] = Quaternion.Normalize(rot[k] * relabel);
+            }
             return tr;
         }
     }

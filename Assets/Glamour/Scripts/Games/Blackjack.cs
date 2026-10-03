@@ -214,6 +214,7 @@ namespace GlamourGames
         {
             var p = pl[i]; float cx = PX[i]; bool act = turn == i; var col = i == 0 ? C.Cyan : C.Pink;
             if (act) Gfx.Light(c, cx, PY, 260, col, .12f, 1.3f);
+            if (p.Bet > 0) Chip3D.Stack(c, cx + 250 * (i == 0 ? 1 : -1), 610, 24, (int)Math.Min(8, Math.Max(1, p.Bet / 10)), i == 0 ? C.Cyan : C.Pink, Col.White.Mix(i == 0 ? C.Cyan : C.Pink, .25f));
             DrawHand(c, p.Cards, i);
             var box = Gfx.Ctr(cx, 708, 440, 112); if (act) Gfx.Glow(c, box, 20, col, 16, .5f + .3f * MathF.Sin(Time * 5)); W.Panel(c, box, col);
             Gfx.Text(c, PName(i) + (act ? "  -  am Zug" : ""), cx - 200, 676, 24, act ? col.Light(.4f) : Col.White, Al.L, true, act ? 6 : 0);
