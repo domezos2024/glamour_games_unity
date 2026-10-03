@@ -199,6 +199,24 @@ namespace GlamourGames
         static void Hull(Canvas2D c, float x, float y, int len, float s, bool horiz, float alpha, float red, float t)
         {
             float L = len * s, W = s;
+            if (Ship3D.Render3D != null)
+            {
+                float cx = horiz ? x + L / 2 : x + s / 2, cy = horiz ? y + s / 2 : y + L / 2;
+                c.Save(); c.Translate(cx, cy); if (!horiz) c.RotateDegrees(90);
+                // Schatten im Wasser, Gischtsaum am Rumpf und Bugwelle
+                var ws = Gfx.Fill(Col.Black.A(.35f * alpha)); ws.Blur = W * .18f; c.DrawOval(W * .08f, W * .12f, L * .48f, W * .3f, ws);
+                var foam = Gfx.Line(Col.White.A((.16f + .06f * MathF.Sin(t * 2.3f + len)) * alpha), W * .07f); foam.Blur = W * .05f; c.DrawOval(0, 0, L * .49f, W * .31f, foam);
+                for (int k = 0; k < 2; k++) { float o = (t * .35f + k * .5f) % 1f; c.DrawArc(Gfx.Ctr(L * .44f - o * W * .4f, 0, W * (.5f + o * .6f), W * (.7f + o * .8f)), -60, 120, false, Gfx.Line(Col.White.A((1 - o) * .2f * alpha), W * .04f)); }
+                c.Restore();
+                c.SaveLayer(alpha);
+                bool drawn = Ship3D.Render3D(c, cx, cy, s, len, !horiz, red > .5f);
+                c.Restore();
+                if (drawn)
+                {
+                    if (red < .5f) Gfx.Light(c, horiz ? cx + L * .47f : cx, horiz ? cy : cy + L * .47f, W * .2f, C.Cyan, .4f * alpha * (.7f + .3f * MathF.Sin(t * 3 + len)), 1.8f);
+                    return;
+                }
+            }
             c.Save(); if (horiz) c.Translate(x, y); else { c.Translate(x + s, y); c.RotateDegrees(90); }
             var sh = Gfx.Fill(Col.Black.A(.4f * alpha)); sh.Blur = 5; c.DrawRoundRect(Gfx.R(4, W * .3f, L - 6, W * .6f), 8, 8, sh);
             using var hp = new Path2D(); hp.MoveTo(W * .1f, W * .18f); hp.LineTo(L - W * .55f, W * .12f); hp.CubicTo(L - W * .1f, W * .2f, L - W * .05f, W * .4f, L - W * .03f, W * .5f);

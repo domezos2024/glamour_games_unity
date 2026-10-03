@@ -170,6 +170,9 @@ namespace GlamourGames
         }
     }
 
+    /// <summary>3D-Kriegsschiff von oben (URP-Modul): (c, Mitte x, Mitte y, Zellgroesse, Laenge in Zellen, senkrecht, beschaedigt) -> true wenn gezeichnet.</summary>
+    public static class Ship3D { public static Func<Canvas2D, float, float, float, int, bool, bool, bool> Render3D; }
+
     /// <summary>Casino-Chipstapel (echtes 3D ueber das URP-Modul, sonst 2D-Ellipsen).</summary>
     public static class Chip3D
     {

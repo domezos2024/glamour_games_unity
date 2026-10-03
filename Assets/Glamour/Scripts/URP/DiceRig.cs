@@ -72,7 +72,7 @@ namespace GlamourGames
             }
             coinMesh = BuildCoinMesh();
             SetupTray(root, main);
-            Chip3D.Render3D = RenderChips;
+            Chip3D.Render3D = RenderChips; Ship3D.Render3D = RenderShip;
             Die3D.Render3D = Render; Coin3D.Render3D = RenderCoin; Die3D.RenderTray = RenderTray; Die3D.FrameBegin = () => used = 0; Die3D.FrameEnd = EndFrame;
             cam.enabled = false;
             Log.I("dice3d bereit");
@@ -176,6 +176,120 @@ namespace GlamourGames
             float u0 = (i % Cols) / (float)Cols, v0 = 1 - (i / Cols) / (float)Rows, span = TileW * unitsPerWorld;
             c.DrawDice(Gfx.Ctr(cx, cy, span, span), new Vector4(u0, v0, u0 + 1f / Cols, v0 - 1f / Rows), Gfx.Fill(Col.White));
             return true;
+        }
+
+        // ------------------------------------------------------------------ Kriegsschiffe (prozedural)
+        static readonly Dictionary<int, Mesh> shipMeshes = new Dictionary<int, Mesh>();
+        static Material[] shipMats, shipMatsBurnt;
+        static bool RenderShip(Canvas2D c, float cx, float cy, float cell, int len, bool vertical, bool damaged)
+        {
+            if (!shipMeshes.TryGetValue(len, out var m)) shipMeshes[len] = m = BuildShip(len);
+            if (shipMats == null)
+            {
+                Material Mk(Color col, float metal, float smooth, Texture tex = null)
+                {
+                    var mt = new Material(baseMat) { name = "Ship" }; mt.SetColor("_BaseColor", col); mt.SetTexture("_BaseMap", tex != null ? tex : Texture2D.whiteTexture);
+                    mt.SetTexture("_BumpMap", FlatNormal()); mt.EnableKeyword("_NORMALMAP"); mt.SetFloat("_Metallic", metal); mt.SetFloat("_Smoothness", smooth); return mt;
+                }
+                var deck = DeckTexture();
+                shipMats = new[] { Mk(new Color(.46f, .5f, .56f), .35f, .5f), Mk(new Color(.45f, .1f, .08f), .2f, .45f), Mk(Color.white, 0, .3f, deck), Mk(new Color(.72f, .75f, .8f), .3f, .55f), Mk(new Color(.12f, .12f, .14f), .5f, .4f) };
+                shipMatsBurnt = new[] { Mk(new Color(.16f, .13f, .12f), .2f, .25f), Mk(new Color(.2f, .05f, .03f), .1f, .2f), Mk(new Color(.25f, .2f, .17f), 0, .15f, deck), Mk(new Color(.22f, .18f, .16f), .2f, .25f), Mk(new Color(.05f, .04f, .04f), .3f, .2f) };
+            }
+            var rot = Quaternion.Euler(-14, 0, 0) * Quaternion.Euler(0, 0, vertical ? -90 : 0) * Quaternion.Euler(-90, 0, 0);
+            return Place(c, cx, cy, cell, m, damaged ? shipMatsBurnt : shipMats, rot);
+        }
+
+        static Texture2D DeckTexture()
+        {
+            const int W = 256, H = 64; var px = new Color32[W * H]; var rng = new System.Random(3);
+            var plank = new float[H / 4]; for (int i = 0; i < plank.Length; i++) plank[i] = .85f + (float)rng.NextDouble() * .25f;
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    int row = y / 4; float seam = (y % 4 == 0) || ((x + row * 37) % 64 == 0) ? .55f : 1f;
+                    float g = plank[row] * seam * (1 + ((float)rng.NextDouble() - .5f) * .08f);
+                    var col = new Color(.55f * g, .42f * g, .3f * g, 1); px[y * W + x] = col;
+                }
+            var t = new Texture2D(W, H, TextureFormat.RGBA32, true, false) { name = "Deck", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 8 };
+            t.SetPixels32(px); t.Apply(true, true); return t;
+        }
+
+        /// <summary>Schiff entlang x (Bug +x), y oben (Wasserlinie y = 0), Breite z. Submeshes: 0 Rumpf, 1 Unterwasserband, 2 Deck, 3 Aufbauten, 4 dunkle Teile.</summary>
+        static Mesh BuildShip(int len)
+        {
+            var pos = new List<Vector3>(); var uv = new List<Vector2>(); var sub = new[] { new List<int>(), new List<int>(), new List<int>(), new List<int>(), new List<int>() };
+            float L = len * .94f, B = len >= 4 ? .25f : len == 3 ? .22f : .19f, deckY = .13f, x0 = -L / 2, x1 = L / 2;
+            float Beam(float x)
+            {
+                float u = (x - x0) / L; // 0 Heck .. 1 Bug
+                if (u > .62f) { float k = (u - .62f) / .38f; return B * Mathf.Sqrt(Mathf.Max(0, 1 - k * k * k)); }
+                if (u < .08f) { float k = (.08f - u) / .08f; return B * Mathf.Sqrt(Mathf.Max(0, 1 - k * k)) * .9f + B * .1f; }
+                return B;
+            }
+            void Quad(int s, Vector3 a, Vector3 b, Vector3 c2, Vector3 d, Vector3 outward, Vector2 ua = default, Vector2 ub = default, Vector2 uc = default, Vector2 ud = default)
+            {
+                int i = pos.Count; pos.Add(a); pos.Add(b); pos.Add(c2); pos.Add(d); uv.Add(ua); uv.Add(ub); uv.Add(uc); uv.Add(ud);
+                if (Vector3.Dot(Vector3.Cross(b - a, c2 - a), outward) < 0) { sub[s].Add(i); sub[s].Add(i + 2); sub[s].Add(i + 1); sub[s].Add(i); sub[s].Add(i + 3); sub[s].Add(i + 2); }
+                else { sub[s].Add(i); sub[s].Add(i + 1); sub[s].Add(i + 2); sub[s].Add(i); sub[s].Add(i + 2); sub[s].Add(i + 3); }
+            }
+            const int N = 40;
+            for (int k = 0; k < N; k++)
+            {
+                float xa = Mathf.Lerp(x0, x1, k / (float)N), xb = Mathf.Lerp(x0, x1, (k + 1) / (float)N), ba = Beam(xa), bb = Beam(xb);
+                for (int sd = -1; sd <= 1; sd += 2)
+                {
+                    var o = new Vector3(0, 0, sd);
+                    // Bordwand: Deck -> Wasserlinie (leicht eingezogen), dann rotes Band bis unter Wasser
+                    Quad(0, new Vector3(xa, deckY, ba * sd), new Vector3(xb, deckY, bb * sd), new Vector3(xb, .025f, bb * .96f * sd), new Vector3(xa, .025f, ba * .96f * sd), o);
+                    Quad(1, new Vector3(xa, .025f, ba * .96f * sd), new Vector3(xb, .025f, bb * .96f * sd), new Vector3(xb, -.06f, bb * .85f * sd), new Vector3(xa, -.06f, ba * .85f * sd), o);
+                }
+                // Deck (Planken laufen laengs)
+                Quad(2, new Vector3(xa, deckY, -ba), new Vector3(xb, deckY, -bb), new Vector3(xb, deckY, bb), new Vector3(xa, deckY, ba), Vector3.up,
+                    new Vector2(xa * 1.6f, 0), new Vector2(xb * 1.6f, 0), new Vector2(xb * 1.6f, 1), new Vector2(xa * 1.6f, 1));
+            }
+            // Heckspiegel
+            Quad(0, new Vector3(x0, deckY, -Beam(x0)), new Vector3(x0, deckY, Beam(x0)), new Vector3(x0, -.06f, Beam(x0) * .85f), new Vector3(x0, -.06f, -Beam(x0) * .85f), Vector3.left);
+            void AddBox(int s, Vector3 c0, Vector3 size)
+            {
+                var h = size / 2; var p = new Vector3[8]; for (int i = 0; i < 8; i++) p[i] = c0 + new Vector3((i & 1) == 0 ? -h.x : h.x, (i & 2) == 0 ? -h.y : h.y, (i & 4) == 0 ? -h.z : h.z);
+                Quad(s, p[2], p[3], p[7], p[6], Vector3.up); Quad(s, p[1], p[3], p[7], p[5], Vector3.right); Quad(s, p[0], p[2], p[6], p[4], Vector3.left);
+                Quad(s, p[4], p[5], p[7], p[6], Vector3.forward); Quad(s, p[0], p[1], p[3], p[2], Vector3.back);
+            }
+            void Cyl(int s, Vector3 c0, float r, float h, int seg = 20)
+            {
+                for (int k = 0; k < seg; k++)
+                {
+                    float a0 = k * Mathf.PI * 2 / seg, a1 = (k + 1) * Mathf.PI * 2 / seg; var d0 = new Vector3(Mathf.Cos(a0), 0, Mathf.Sin(a0)); var d1 = new Vector3(Mathf.Cos(a1), 0, Mathf.Sin(a1));
+                    Quad(s, c0 + d0 * r, c0 + d1 * r, c0 + d1 * r + Vector3.up * h, c0 + d0 * r + Vector3.up * h, (d0 + d1).normalized);
+                    int i = pos.Count; pos.Add(c0 + Vector3.up * h); pos.Add(c0 + d0 * r + Vector3.up * h); pos.Add(c0 + d1 * r + Vector3.up * h); uv.Add(default); uv.Add(default); uv.Add(default);
+                    if (Vector3.Dot(Vector3.Cross(pos[i + 1] - pos[i], pos[i + 2] - pos[i]), Vector3.up) < 0) { sub[s].Add(i); sub[s].Add(i + 2); sub[s].Add(i + 1); } else { sub[s].Add(i); sub[s].Add(i + 1); sub[s].Add(i + 2); }
+                }
+            }
+            void Turret(float x, bool fwd)
+            {
+                Cyl(3, new Vector3(x, deckY, 0), B * .55f, .07f); AddBox(3, new Vector3(x, deckY + .1f, 0), new Vector3(B * .9f, .06f, B * .8f));
+                float dir = fwd ? 1 : -1;
+                for (int k = -1; k <= 1; k += 2) AddBox(4, new Vector3(x + dir * B * .95f, deckY + .1f, k * B * .18f), new Vector3(B * 1.3f, .028f, .028f));
+            }
+            // Aufbauten je nach Schiffsklasse
+            float bridgeX = len >= 4 ? L * .08f : L * .1f;
+            AddBox(3, new Vector3(bridgeX, deckY + .09f, 0), new Vector3(B * 1.3f, .18f, B * 1.1f));
+            AddBox(3, new Vector3(bridgeX + B * .1f, deckY + .22f, 0), new Vector3(B * .8f, .1f, B * .8f));
+            AddBox(4, new Vector3(bridgeX + B * .48f, deckY + .22f, 0), new Vector3(.01f, .03f, B * .7f)); // Bruecken-Fenster
+            Cyl(4, new Vector3(bridgeX - B * .1f, deckY + .27f, 0), .012f, .28f, 8); // Mast
+            AddBox(4, new Vector3(bridgeX - B * .1f, deckY + .47f, 0), new Vector3(.02f, .015f, B * .9f)); // Rah
+            int funnels = len >= 4 ? 2 : 1;
+            for (int k = 0; k < funnels; k++) { float fx = bridgeX - B * (1.3f + k * 1.1f); Cyl(3, new Vector3(fx, deckY, 0), B * .32f, .24f, 16); Cyl(4, new Vector3(fx, deckY + .24f, 0), B * .3f, .04f, 16); }
+            Turret(L * .32f, true);
+            if (len >= 4) Turret(L * .2f + B * .1f, true);
+            if (len >= 3) Turret(-L * .34f, false);
+            if (len >= 4) AddBox(3, new Vector3(-L * .2f, deckY + .04f, 0), new Vector3(B * 1.2f, .08f, B * .9f));
+            // Relingsstuetzen entlang der Bordkante (feine Details)
+            for (float x = x0 + .1f; x < x1 - .25f; x += .12f) for (int sd = -1; sd <= 1; sd += 2) AddBox(4, new Vector3(x, deckY + .02f, Beam(x) * .97f * sd), new Vector3(.008f, .04f, .008f));
+            var m = new Mesh { name = "Ship" + len, indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            m.SetVertices(pos); m.SetUVs(0, uv); m.subMeshCount = 5; for (int s = 0; s < 5; s++) m.SetTriangles(sub[s], s);
+            m.RecalculateNormals(); m.RecalculateTangents(); m.RecalculateBounds();
+            return m;
         }
 
         // ------------------------------------------------------------------ Casino-Chips
