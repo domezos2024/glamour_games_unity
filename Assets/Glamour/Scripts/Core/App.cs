@@ -19,6 +19,7 @@ namespace GlamourGames
         public static Action<Camera> SetupPostFx;
         public static Action<Camera, Material> SetupDice;
         readonly List<(float t, Key key)> autoKeys = new List<(float t, Key key)>();
+        readonly List<(float t, float x, float y)> autoClicks = new List<(float t, float x, float y)>();
 
         static App inst;
         static Scene cur, pending; static float fade = 1, flash, shake, toastT, fps, fpsAcc; static int fpsN; static Col flashCol = Col.White;
@@ -101,6 +102,12 @@ namespace GlamourGames
                 else if (a.StartsWith("--shot=")) shotPath = a.Substring(7);
                 else if (a.StartsWith("--at=")) float.TryParse(a.Substring(5), NumberStyles.Float, ci, out shotAt);
                 else if (a.StartsWith("--skip=")) int.TryParse(a.Substring(7), out Opponents.Skip);
+                else if (a.StartsWith("--click="))
+                    foreach (var e in a.Substring(8).Split(';'))
+                    {
+                        var q = e.Split('@'); var xy = q[0].Split(',');
+                        if (q.Length == 2 && xy.Length == 2 && float.TryParse(xy[0], NumberStyles.Float, ci, out var cx) && float.TryParse(xy[1], NumberStyles.Float, ci, out var cy) && float.TryParse(q[1], NumberStyles.Float, ci, out var at)) autoClicks.Add((at, cx, cy));
+                    }
                 else if (a.StartsWith("--press="))
                     foreach (var e in a.Substring(8).Split(';'))
                     {
@@ -235,6 +242,7 @@ namespace GlamourGames
                 catch (Exception e) { Debug.LogException(e); }
             }
 
+            for (int k = autoClicks.Count - 1; k >= 0; k--) if (autoT >= autoClicks[k].t) { var ck = autoClicks[k]; autoClicks.RemoveAt(k); MoveTo(ck.x, ck.y); Down(); Up(); }
             for (int k = autoKeys.Count - 1; k >= 0; k--) if (autoT >= autoKeys[k].t) { var key = autoKeys[k].key; autoKeys.RemoveAt(k); KeyPress(key); }
             // Szenenwechsel mit Ueberblendung
             if (pending != null) { fade += dt / .16f; if (fade >= 1) { fade = 1; try { cur?.Leave(); } catch (Exception e) { Debug.LogException(e); } cur = pending; pending = null; cur.Enter(); } }
