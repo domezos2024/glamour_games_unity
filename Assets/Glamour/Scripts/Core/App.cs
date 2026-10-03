@@ -17,6 +17,7 @@ namespace GlamourGames
         public static float VX0, VX1 = VW, VY0, VY1 = VH, MX, MY;
         /// <summary>Wird von PostFX (URP) gesetzt, um Bloom &amp; Co. an der Kamera einzurichten.</summary>
         public static Action<Camera> SetupPostFx;
+        public static Action<Camera, Material> SetupDice;
 
         static App inst;
         static Scene cur, pending; static float fade = 1, flash, shake, toastT, fps, fpsAcc; static int fpsN; static Col flashCol = Col.White;
@@ -88,6 +89,7 @@ namespace GlamourGames
             mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
             if (FindAnyObjectByType<AudioListener>() == null) cam.gameObject.AddComponent<AudioListener>();
+            try { SetupDice?.Invoke(cam, shapeMat); } catch (Exception e) { Log.I("dice3d " + e.Message); }
             Sfx.Init(gameObject);
             handCursor = MakeHandCursor();
 
@@ -230,7 +232,7 @@ namespace GlamourGames
             else if (fade > 0) fade = Math.Max(0, fade - dt / .3f);
             shake = Math.Max(0, shake - dt * 40);
 
-            canvas.Begin();
+            canvas.Begin(); Die3D.FrameBegin?.Invoke();
             try
             {
                 cur.BaseUpdate(dt);
@@ -246,7 +248,7 @@ namespace GlamourGames
             }
             if (showFps) { fpsAcc += dt; fpsN++; if (fpsAcc > .5f) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; } Gfx.Text(canvas, $"{fps:0} FPS  ·  {canvas.VertexCount} Vertices", VX1 - 10, VY1 - 20, 20, C.Green, Al.R); }
             if (fade > 0) canvas.DrawRect(VX0 - 100, VY0 - 100, VX1 - VX0 + 200, VY1 - VY0 + 200, Gfx.Fill(Col.Black.A(Ease.InCubic(fade))));
-            canvas.Upload(mesh);
+            canvas.Upload(mesh); Die3D.FrameEnd?.Invoke();
 
             float sx = shake > 0 ? (float)(Rng.Shared.NextDouble() - .5) * shake : 0, sy = shake > 0 ? (float)(Rng.Shared.NextDouble() - .5) * shake : 0;
             canvasGo.transform.localPosition = new Vector3(sx, -sy, 0);

@@ -103,37 +103,54 @@ namespace GlamourGames
         static readonly (float, float)[][] pips = {
             new[]{(.5f,.5f)}, new[]{(.27f,.27f),(.73f,.73f)}, new[]{(.27f,.27f),(.5f,.5f),(.73f,.73f)}, new[]{(.27f,.27f),(.73f,.27f),(.27f,.73f),(.73f,.73f)},
             new[]{(.27f,.27f),(.73f,.27f),(.5f,.5f),(.27f,.73f),(.73f,.73f)}, new[]{(.27f,.27f),(.73f,.27f),(.27f,.5f),(.73f,.5f),(.27f,.73f),(.73f,.73f)} };
+        /// <summary>Echte 3D-Darstellung (URP-Modul): zeichnet den Wuerfel und liefert true, sonst wird die 2D-Variante genutzt.</summary>
+        public static Func<Canvas2D, float, float, float, float[], Col, Col, bool> Render3D;
+        public static Action FrameBegin, FrameEnd;
+        public static readonly int[] FaceValues = faceVal;
+        public static float[] Normal(int i) => nrm[i];
+        public static float[] UAxis(int i) => uax[i];
+        public static float[] VAxis(int i) => vax[i];
+        public static (float, float)[] Pips(int value) => pips[value - 1];
         public static void Draw(Canvas2D c, float cx, float cy, float size, float[] m, Col body, Col pip, bool glow = false)
         {
+            if (glow) Gfx.Light(c, cx, cy, size * 1.2f, body, .45f, 1.4f);
+            var sh = Gfx.Fill(Col.Black.A(.45f)); sh.Blur = size * .12f; c.DrawOval(cx + size * .08f, cy + size * .62f, size * .55f, size * .14f, sh);
+            if (Render3D != null && Render3D(c, cx, cy, size, m, body, pip)) return;
             float f = 5.5f;
             Pt P(float[] v)
             {
                 float x = m[0] * v[0] + m[1] * v[1] + m[2] * v[2], y = m[3] * v[0] + m[4] * v[1] + m[5] * v[2], z = m[6] * v[0] + m[7] * v[1] + m[8] * v[2];
                 float k2 = f / (f - z); return new Pt(cx + x * k2 * size * .5f, cy - y * k2 * size * .5f);
             }
-            if (glow) Gfx.Light(c, cx, cy, size * 1.2f, body, .45f, 1.4f);
-            var sh = Gfx.Fill(Col.Black.A(.45f)); sh.Blur = size * .12f; c.DrawOval(cx + size * .08f, cy + size * .62f, size * .55f, size * .14f, sh);
-            var order = Enumerable.Range(0, 6).Select(i => (i, z: m[6] * nrm[i][0] + m[7] * nrm[i][1] + m[8] * nrm[i][2])).Where(t => t.z > .001f).OrderBy(t => t.z);
+            var order = Enumerable.Range(0, 6).Select(i => (i, z: m[6] * nrm[i][0] + m[7] * nrm[i][1] + m[8] * nrm[i][2])).Where(t => t.z > .001f).OrderBy(t => t.z).ToList();
+            // Geschlossener Koerper: exakte Seitenflaechen (keine Luecken an Kanten/Ecken), Kanten als runde Fase
             foreach (var (i, z) in order)
             {
                 var n = nrm[i]; var u = uax[i]; var v = vax[i];
                 float[] corner(float a, float b) => new float[] { n[0] + u[0] * a + v[0] * b, n[1] + u[1] * a + v[1] * b, n[2] + u[2] * a + v[2] * b };
                 var q0 = P(corner(-1, 1)); var q1 = P(corner(1, 1)); var q2 = P(corner(1, -1)); var q3 = P(corner(-1, -1));
-                // Beste affine Naeherung der perspektivischen Flaeche (Parallelogramm durch die 4 Ecken)
-                var ex = ((q1 - q0) + (q2 - q3)) * .5f; var ey = ((q3 - q0) + (q2 - q1)) * .5f;
-                var ctr = (q0 + q1 + q2 + q3) * .25f; var o = ctr - ex * .5f - ey * .5f;
                 float lx = m[0] * n[0] + m[1] * n[1] + m[2] * n[2], ly = m[3] * n[0] + m[4] * n[1] + m[5] * n[2];
                 float shade = Math.Clamp(.55f + .25f * z + .2f * (-lx * .3f + ly * .8f), .35f, 1.05f);
+                using var face = new Path2D(); face.MoveTo(q0); face.LineTo(q1); face.LineTo(q2); face.LineTo(q3); face.Close();
+                var p = Gfx.Fill(Col.White); p.Shader = Grad.Linear(q0.X, q0.Y, q2.X, q2.Y, body.Dark(Math.Min(1, shade * 1.05f)), body.Dark(shade * .8f)); c.DrawPath(face, p);
+                var ex = ((q1 - q0) + (q2 - q3)) * .5f; var ey = ((q3 - q0) + (q2 - q1)) * .5f;
+                var o = (q0 + q1 + q2 + q3) * .25f - ex * .5f - ey * .5f;
                 c.Save(); c.Concat(new Aff(ex.X, ex.Y, ey.X, ey.Y, o.X, o.Y));
-                var r = new Box(0, 0, 1, 1); float rad = .16f;
-                var p = Gfx.Fill(Col.White); p.Shader = Grad.Linear(0, 0, 1, 1, body.Dark(Math.Min(1, shade * 1.05f)), body.Dark(shade * .78f)); c.DrawRoundRect(r, rad, rad, p);
-                c.DrawRoundRect(new Box(.02f, .02f, .98f, .98f), rad, rad, Gfx.Line(Col.White.A(.35f * shade), .02f));
+                c.DrawRoundRect(new Box(.06f, .06f, .94f, .94f), .14f, .14f, Gfx.Line(Col.White.A(.22f * shade), .025f));
                 foreach (var (px, py) in pips[faceVal[i] - 1])
                 {
                     c.DrawCircle(px, py, .105f, Gfx.Fill(Col.Black.A(.35f))); c.DrawCircle(px, py, .095f, Gfx.Fill(pip.Dark(Math.Min(1, shade + .2f))));
                     c.DrawCircle(px - .025f, py - .03f, .03f, Gfx.Fill(Col.White.A(.35f)));
                 }
                 c.Restore();
+            }
+            float ew = Math.Max(1.5f, size * .035f);
+            foreach (var (i, z) in order)
+            {
+                var n = nrm[i]; var u = uax[i]; var v = vax[i];
+                float[] corner(float a, float b) => new float[] { n[0] + u[0] * a + v[0] * b, n[1] + u[1] * a + v[1] * b, n[2] + u[2] * a + v[2] * b };
+                using var e = new Path2D(); e.MoveTo(P(corner(-1, 1))); e.LineTo(P(corner(1, 1))); e.LineTo(P(corner(1, -1))); e.LineTo(P(corner(-1, -1))); e.Close();
+                c.DrawPath(e, Gfx.Line(body.Light(.35f).A(.3f), ew));
             }
         }
     }
