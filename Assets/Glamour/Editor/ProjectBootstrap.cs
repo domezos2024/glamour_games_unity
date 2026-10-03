@@ -29,9 +29,9 @@ namespace GlamourGames.EditorTools
         [MenuItem("Glamour Games/Projekt einrichten", priority = 1)]
         static void SetupMenu() => Setup(true);
 
-        static void Setup(bool verbose)
+        static void Setup(bool verbose, bool force = false)
         {
-            if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating) { EditorApplication.delayCall += () => Setup(verbose); return; }
+            if (!force && (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating)) { EditorApplication.delayCall += () => Setup(verbose); return; }
             try
             {
                 EnsurePipeline();
@@ -115,22 +115,38 @@ namespace GlamourGames.EditorTools
         }
 
         [MenuItem("Glamour Games/Windows-Build erstellen", priority = 20)]
-        static void BuildWindows()
+        static void BuildWindows() => Build("Builds/Windows/GlamourGames.exe");
+
+        static bool Build(string path)
         {
-            Setup(false);
+            Setup(false, true);
+            AssetDatabase.SaveAssets();
             var opts = new BuildPlayerOptions
             {
                 scenes = new[] { ScenePath },
-                locationPathName = "Builds/Windows/GlamourGames.exe",
+                locationPathName = path,
                 target = BuildTarget.StandaloneWindows64,
                 options = BuildOptions.None,
             };
             var report = BuildPipeline.BuildPlayer(opts);
             Debug.Log($"[Glamour] Build: {report.summary.result}, {report.summary.totalSize / (1024 * 1024)} MB -> {opts.locationPathName}");
-            if (report.summary.result == UnityEditor.Build.Reporting.BuildResult.Succeeded) EditorUtility.RevealInFinder(opts.locationPathName);
+            bool ok = report.summary.result == UnityEditor.Build.Reporting.BuildResult.Succeeded;
+            if (ok && !Application.isBatchMode) EditorUtility.RevealInFinder(opts.locationPathName);
+            return ok;
         }
 
-        /// <summary>Fuer Kommandozeilen-Builds: Unity -batchmode -quit -projectPath . -executeMethod GlamourGames.EditorTools.ProjectBootstrap.CiBuild</summary>
-        public static void CiBuild() => BuildWindows();
+        /// <summary>
+        /// Kommandozeilen-Build: Unity -batchmode -quit -projectPath . -executeMethod GlamourGames.EditorTools.ProjectBootstrap.CiBuild [-buildPath Pfad\GlamourGames.exe]
+        /// Beendet Unity mit Exit-Code 1, wenn der Build fehlschlaegt.
+        /// </summary>
+        public static void CiBuild()
+        {
+            string path = "Builds/Windows/GlamourGames.exe";
+            var args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++) if (args[i] == "-buildPath") path = args[i + 1];
+            bool ok = false;
+            try { ok = Build(path); } catch (System.Exception e) { Debug.LogException(e); }
+            if (Application.isBatchMode) EditorApplication.Exit(ok ? 0 : 1);
+        }
     }
 }
