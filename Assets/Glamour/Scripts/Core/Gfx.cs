@@ -58,6 +58,7 @@ namespace GlamourGames
             Felt(c, r, rad);
             c.Save(); c.ClipRoundRect(r, rad); Light(c, cx, r.Top + r.Height * .38f, radius * .9f, inner.Light(.35f), .16f, 1.1f); c.Restore();
         }
+        public static void Disc(Canvas2D c, float x, float y, float r, Col col, float rough = 0) => c.DrawDisc(x, y, r, Fill(col), rough);
         public static void Water(Canvas2D c, Box r, float rad, float time) => c.DrawWater(r, rad, time, Fill(Col.White));
         public static void Felt(Canvas2D c, Box r, float rad, float strength = .13f) => c.DrawGrain(r, rad, 1, strength, Math.Min(r.Width, r.Height) * .09f, Fill(Col.White));
         public static void Paper(Canvas2D c, Box r, float rad, float strength = .07f) => c.DrawGrain(r, rad, 2, strength, 0, Fill(Col.White));

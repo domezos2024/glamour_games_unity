@@ -238,6 +238,22 @@ Shader "Glamour/Shape"
                     rgb = shadePBR(normalize(n + float3(0, brush * 0.05, 0)), alb, metal, rough);
                     cov = cover(sdRoundBox(p, hs, rad), sw, sigma);
                 }
+                else if (type == 14) // Spielstein-Scheibe: erhabener Rand, Rillen, Mulde; PBR-Kunststoff (Rauheit t3.y)
+                {
+                    float r = max(hs.x, 1e-4);
+                    float u = length(p) / r;
+                    float2 dir = u > 1e-4 ? p / (u * r) : float2(0, 0);
+                    // Hoehenprofil-Ableitung dh/du: Aussenfase, Randwulst, Rillen, flache Mulde
+                    float dh = 0.0;
+                    dh += u > 0.9 ? -(u - 0.9) / 0.1 * 2.2 : 0.0;
+                    dh += (u > 0.68 && u < 0.9) ? cos((u - 0.68) / 0.22 * 3.14159) * 0.9 : 0.0;
+                    dh += (u < 0.68) ? sin(u * 40.0) * 0.08 + u * 0.25 : 0.0;
+                    float3 n = normalize(float3(-dir * dh * 0.55, 1.0));
+                    float rough = i.t3.y > 0.0 ? i.t3.y : 0.32;
+                    float3 alb = toLinear(base.rgb);
+                    rgb = shadePBR(n, alb, 0.0, rough);
+                    cov = cover(length(p) - r, 0.0, sigma);
+                }
                 else if (type == 13) // Wasser: Wellen-Normalen, Kaustik, Sonnenglanz und Himmelsspiegelung (t3.x = Zeit)
                 {
                     float t = i.t3.x;
