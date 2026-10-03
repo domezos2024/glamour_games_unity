@@ -13,7 +13,7 @@ namespace GlamourGames
     public sealed class App : MonoBehaviour
     {
         public const float VW = 1600, VH = 900;
-        public const string Version = "2.0.0", Credit = "erstellt von Michael Bergfeld @ DoMeZos-Ware 2026";
+        public const string Version = "2.1.0", Credit = "erstellt von Michael Bergfeld @ DoMeZos-Ware 2026";
         public static float VX0, VX1 = VW, VY0, VY1 = VH, MX, MY;
         /// <summary>Wird von PostFX (URP) gesetzt, um Bloom &amp; Co. an der Kamera einzurichten.</summary>
         public static Action<Camera> SetupPostFx;
