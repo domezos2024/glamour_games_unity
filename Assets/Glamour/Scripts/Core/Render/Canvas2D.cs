@@ -273,6 +273,8 @@ namespace GlamourGames
         public void DrawRod(Box r, float rad, Paint p, float metal, float rough) => Shape(ROD, r.MidX, r.MidY, 1, 0, r.Width / 2, r.Height / 2, rad, p, new Vector4(metal, rough, 0, 0), Vector4.zero);
         /// <summary>Gesamtbild der 3D-Tischszene (vormultipliziertes Alpha) in ein Zielrechteck.</summary>
         /// <summary>Einzelobjekt in 3D (Pokal) aus eigener Render-Textur.</summary>
+        /// <summary>Shape-Typen mit Texturkoordinaten (Bildatlas bzw. Render-Texturen) - neue Textur-Typen hier ergaenzen.</summary>
+        static bool Textured(int type) => type == IMAGE || type == DICE || type == TRAY || type == HERO;
         public void DrawHero(Box dst, Paint p) => Shape(HERO, dst.MidX, dst.MidY, 1, 0, dst.Width / 2, dst.Height / 2, 0, p, Vector4.zero, Vector4.zero, new Vector4(0, 1, 1, 0));
         public void DrawTray(Box dst, Paint p) => Shape(TRAY, dst.MidX, dst.MidY, 1, 0, dst.Width / 2, dst.Height / 2, 0, p, Vector4.zero, Vector4.zero, new Vector4(0, 1, 1, 0));
         /// <summary>Spielstein-Scheibe (Vier Gewinnt, Chips) mit Rand und Rillen.</summary>
@@ -301,7 +303,8 @@ namespace GlamourGames
         {
             float sw = p.Stroke ? Math.Max(.01f, p.StrokeWidth) : 0, blur = Math.Max(0, p.Blur);
             float pad = blur * 3f + sw * .5f + 2f / Math.Max(.05f, Math.Min(m.ScaleX, m.ScaleY));
-            if (type == IMAGE || type == DICE || type == TRAY) pad = 0;
+            bool textured = Textured(type);
+            if (textured) pad = 0;
             if (type == ARC) pad += 0;
             float ex = hw + pad, ey = hh + pad;
             var shp = new Vector4(hw, hh, rad, sw);
@@ -312,7 +315,7 @@ namespace GlamourGames
                 float lx = (k == 0 || k == 3) ? -ex : ex, ly = k < 2 ? -ey : ey;
                 float ox = cx + ax * lx + bx * ly, oy = cy + ay * lx + by * ly;
                 Vector4 u0 = new Vector4(lx, ly, 0, 0);
-                if (type == IMAGE || type == DICE || type == TRAY) { u0.z = lx < 0 ? tex.x : tex.z; u0.w = ly < 0 ? tex.y : tex.w; }
+                if (textured) { u0.z = lx < 0 ? tex.x : tex.z; u0.w = ly < 0 ? tex.y : tex.w; }
                 Vert(ox, oy, u0, shp, type, blur, p, extra, tng);
             }
             Tri(baseV);
