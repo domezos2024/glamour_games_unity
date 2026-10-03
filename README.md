@@ -17,6 +17,16 @@ HDR-Neon-Grafik und einem Computer-Gegner in drei Stärken für **jedes** Spiel.
 **[Neueste Version herunterladen](https://github.com/domezos2024/glamour_games_unity/releases/latest)**: entweder `GlamourGames-<Version>-Setup.exe` (Installer mit Startmenü-/Desktop-Verknüpfung und Deinstallation) oder `GlamourGames-<Version>-win-x64.zip` (ohne Installation: entpacken, `GlamourGames.exe` starten).
 Voraussetzungen: Windows 10/11 (64 Bit), Grafikkarte mit DirectX 11/12.
 
+## Neu in 2.2 – Sieger-Update (Grafik & Effekte)
+
+* **Echter 3D-Siegerpokal:** prozedurales Modell (Kelch mit Lippe und Innenwand, Henkel, Nodus, Stern, Klavierlack-Sockel mit Goldleiste und Plakette) in **PBR-Gold**, das eine eigene HDR-Studioumgebung spiegelt; Glanzlichter leuchten über den Bloom. Eigene Kamera in Bildschirmauflösung – gestochen scharf bis 4K.
+* **Kinoreife Siegesinszenierung:** Abdunklung mit Lichtkegel, weiche gegenläufige Lichtstrahlen, aufsteigender, sich drehender Pokal, anamorphotischer Linsenreflex mit Geisterbildern, Sternfilter-Glitzer und ein **Satinband-Banner mit Goldschrift** (Chrom-Horizont, Kantenschliff, wandernder Glanzstreif).
+* **Sieger-Dialog** mit Pokal, Strahlenkranz, Goldrahmen und Lichtreflex, der über den Rand läuft.
+* **Neue Partikel:** geprägte, rotierende **Goldmünzen** (Regen und Fontäne), Folien-Konfetti mit Spiegelblitzen, beleuchtetes Konfetti, wehende **Luftschlangen**, Trauerweiden- und Knister-Feuerwerk.
+* **Postprocessing:** 64-Bit-HDR (keine Farbstufen in Verläufen), Bloom mit prozeduralem **Linsenschmutz**, HDR-Farbkorrektur, bei Siegen kurzer Bloom-Impuls mit **Screen-Space-Lens-Flare**; schärfere Bildatlas-Filterung.
+
+<div align="center"><img src="docs/screenshots/sieg.jpg" width="900" alt="Siegesinszenierung und Sieger-Dialog"><br><sub>Software-Vorschau (2D-Ersatzpokal, ohne Bloom); im Unity-Player erscheinen der echte 3D-Pokal und das HDR-Postprocessing.</sub></div>
+
 ## Neu in 2.1 – Realismus-Update
 
 * **Kniffel:** echte 3D-Würfel (abgerundet, eingelassene Augen) mit **physikalischem Wurf** (Starrkörper-Simulation, Aufprall-Geräusche) und echten Schatten auf dem Filz.
@@ -30,7 +40,7 @@ Voraussetzungen: Windows 10/11 (64 Bit), Grafikkarte mit DirectX 11/12.
 
 | | Windows 1.8.1 (SkiaSharp) | Unity Edition 2.0 |
 | --- | --- | --- |
-| Rendering | Skia, Glow per Weichzeichner | GPU-Signed-Distance-Renderer, **HDR-Bloom**, Tonemapping, Vignette, chromatische Aberration, Filmkorn |
+| Rendering | Skia, Glow per Weichzeichner | GPU-Signed-Distance-Renderer, **HDR-Bloom** mit Linsenschmutz, Tonemapping, Farbkorrektur, Vignette, Lens-Flare bei Siegen |
 | Auflösung | 1600 × 900 skaliert | gestochen scharf bis 4K (Formen und Schriften als Distanzfelder) |
 | Hintergrund | Farbverläufe, Sterne | animierter Nebel (Domain-Warping), 3 Sternschichten, Polarlicht – komplett im Shader |
 | Kugeln & Steine | Verlaufsfüllung | beleuchtete 3D-Kugeln mit Glanz- und Randlicht |
@@ -109,5 +119,5 @@ Quellcode unter der [MIT-Lizenz](LICENSE). Schriften und Grafiken: siehe [Third-
 
 <div align="center">
 <br>
-<b>Glamour Games 2.0 – Unity Edition</b> – erstellt von Michael Bergfeld @ DoMeZos-Ware 2026
+<b>Glamour Games 2.2 – Unity Edition</b> – erstellt von Michael Bergfeld @ DoMeZos-Ware 2026
 </div>

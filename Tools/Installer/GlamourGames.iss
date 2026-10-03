@@ -1,7 +1,7 @@
 ; Glamour Games - Windows-Installer (Inno Setup 6)
-; Aufruf: ISCC.exe /DAppVer=2.1.0 /DBuildDir=<Build-Ordner> /DOutDir=<Ausgabe> Tools\Installer\GlamourGames.iss
+; Aufruf: ISCC.exe /DAppVer=2.2.0 /DBuildDir=<Build-Ordner> /DOutDir=<Ausgabe> Tools\Installer\GlamourGames.iss
 #ifndef AppVer
-  #define AppVer "2.1.0"
+  #define AppVer "2.2.0"
 #endif
 #ifndef BuildDir
   #define BuildDir "..\..\Builds\Windows"

@@ -120,7 +120,7 @@ namespace GlamourGames
             }
             Texture = new Texture2D(2, 2, TextureFormat.RGBA32, true, false) { name = "GlamourImageAtlas" };
             Texture.LoadImage(png.bytes, false);
-            Texture.filterMode = FilterMode.Trilinear; Texture.wrapMode = TextureWrapMode.Clamp; Texture.anisoLevel = 4;
+            Texture.filterMode = FilterMode.Trilinear; Texture.wrapMode = TextureWrapMode.Clamp; Texture.anisoLevel = 8; Texture.mipMapBias = -.6f; // verkleinerte Symbole/Kartenbilder schaerfer
             Texture.Apply(true, true);
             Loaded = true;
         }

@@ -13,11 +13,12 @@ namespace GlamourGames
     public sealed class App : MonoBehaviour
     {
         public const float VW = 1600, VH = 900;
-        public const string Version = "2.1.0", Credit = "erstellt von Michael Bergfeld @ DoMeZos-Ware 2026";
+        public const string Version = "2.2.0", Credit = "erstellt von Michael Bergfeld @ DoMeZos-Ware 2026";
         public static float VX0, VX1 = VW, VY0, VY1 = VH, MX, MY;
         /// <summary>Wird von PostFX (URP) gesetzt, um Bloom &amp; Co. an der Kamera einzurichten.</summary>
         public static Action<Camera> SetupPostFx;
         public static Action<Camera, Material> SetupDice;
+        public static Action<Camera, Material> SetupHero;
         readonly List<(float t, Key key)> autoKeys = new List<(float t, Key key)>();
         readonly List<(float t, float x, float y)> autoClicks = new List<(float t, float x, float y)>();
 
@@ -92,6 +93,7 @@ namespace GlamourGames
 
             if (FindAnyObjectByType<AudioListener>() == null) cam.gameObject.AddComponent<AudioListener>();
             try { SetupDice?.Invoke(cam, shapeMat); } catch (Exception e) { Log.I("dice3d " + e.Message); }
+            try { SetupHero?.Invoke(cam, shapeMat); } catch (Exception e) { Log.I("pokal3d " + e.Message); }
             Sfx.Init(gameObject);
             handCursor = MakeHandCursor();
 

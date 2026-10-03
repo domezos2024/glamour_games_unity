@@ -6,8 +6,10 @@ schlanke Sofortmodus-Engine (`Assets/Glamour/Scripts/Core`) auf Unity 6.3 LTS + 
 * **Ein Mesh, ein Draw-Call pro Frame.** Jede Zeichenoperation (`Canvas2D.DrawCircle`, `Gfx.Text`, …) hängt ein Quad
   oder Polygon an. Der Shader `Glamour/Shape` rendert alle Formen über **Signed-Distance-Funktionen**: gestochen scharf
   in jeder Auflösung (bis 4K), kantengeglättet, weichgezeichnet (Glow) und mit **HDR-Leuchtkraft**.
-* **URP-Postprocessing** (Bloom, Tonemapping, Vignette, chromatische Aberration, Filmkorn) macht aus HDR-Werten > 1
-  echtes Neon-Leuchten.
+* **URP-Postprocessing** (64-Bit-HDR, Bloom mit Linsenschmutz, Tonemapping, Farbkorrektur, Vignette, bei Siegen
+  Screen-Space-Lens-Flare) macht aus HDR-Werten > 1 echtes Neon-Leuchten.
+* **3D-Objekte** (Würfel, Münze, Chips, Schiffe: `URP/DiceRig.cs`; Pokal: `URP/RewardRig.cs`) rendert je eine eigene Kamera
+  in eine Render-Textur, die der Canvas einblendet (Shape-Typen `DICE`, `TRAY`, `HERO`).
 * **Hintergrund-Shader** `Glamour/Backdrop`: Nebel mit Domain-Warping, drei Sternschichten, Polarlicht, Vignette.
 * **SDF-Schriftatlas** (Selawik, Selawik Bold, PT Serif Bold Italic, Noto Sans Symbols 2) – Text kann leuchten,
   Umrisse und Farbverläufe haben.
@@ -67,8 +69,10 @@ Registrierung: `Games/Menu.cs` → `Registry.All`.
 | Geometrie | `Geo.LineIn(c, box, x0,y0,x1,y1, paint)` – Linie auf Rechteck zugeschnitten |
 | Karten/Würfel | `CardArt.Card/Face/Back/Ranks/SuitCol`, `Die3D.Draw/Face/RX/RY/RZ/RAxis/Mul`, `Coin3D.Draw` |
 | Bilder | `Assets.Img("slot_BOOK")` → `Img` (Atlas), `Gfx.Image(c, img, box, alpha, radius)` |
-| Effekte | `Fx.Burst/Confetti/Spark/Ring/Shockwave/Smoke/Flames/Explosion/Splash/Ripple/Bubbles/Petals/Throw/Cannon/Rocket/Lightning` |
-| Szene | `Celebrate(col,dur,power,banner)`, `Result(...)`, `NameEntry(...)`, `HighscoreList(...)`, `Pop(text,x,y,col)`, `Tm.After(sec, action)`, `Co.Start(...)`, `Modal` |
+| Effekte | `Fx.Burst/Confetti/Spark/Ring/Shockwave/Smoke/Flames/Explosion/Splash/Ripple/Bubbles/Petals/Throw/Cannon/Rocket/Lightning/CoinShower/CoinFountain/Glints/Streamers` |
+| Metall & Licht | `Metal.Text` (Gold-/Chromschrift mit Glanzstreif), `Metal.Ribbon` (Banner), `Metal.Rays`, `Metal.Flare` (Linsenreflex), `Metal.Glint` (Sternfilter), `Metal.Bar` |
+| Sieg | `Trophy3D.Draw(c, Trophy3D.Rect(cx, cy, h), spin, alpha)` (3D in URP, sonst 2D), `RewardShow` (von `Celebrate` erzeugt, `Scene.Reward`), `Lens.Kick(power)` (Bloom-/Flare-Impuls) |
+| Szene | `Celebrate(col,dur,power,banner)` (Pokal ab Banner + 3 s oder power ≥ 1.4; nicht wenn der Computer gewinnt), `Result(...)` (Titel mit „gewinnt“/„Bestwert“/„Sieg“ → Sieger-Dialog mit Pokal), `NameEntry(...)`, `HighscoreList(...)`, `Pop(text,x,y,col)`, `Tm.After(sec, action)`, `Co.Start(...)`, `Modal` |
 | App | `App.Go(scene)`, `App.Flash(col,a)`, `App.Shake(a)`, `App.Toast(text)`, `App.MX/MY`, `App.VX0..VY1` |
 | Audio | `Sfx.Play(S.Win, vol, pitch)` |
 | Speicher | `Save.Int/Str/Set/Scores/IsHigh/AddScore`, `Pl.Name(i)` |

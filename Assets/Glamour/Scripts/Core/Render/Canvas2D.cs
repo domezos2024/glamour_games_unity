@@ -129,7 +129,7 @@ namespace GlamourGames
     /// </summary>
     public sealed class Canvas2D
     {
-        public const int SOLID = 0, RRECT = 1, ELLIPSE = 2, RADIAL = 3, BALL = 4, IMAGE = 5, GLYPH = 6, STRIP = 7, PERFORATED = 8, ARC = 9, DICE = 10, ROD = 11, GRAIN = 12, WATER = 13, DISC = 14, TRAY = 15;
+        public const int SOLID = 0, RRECT = 1, ELLIPSE = 2, RADIAL = 3, BALL = 4, IMAGE = 5, GLYPH = 6, STRIP = 7, PERFORATED = 8, ARC = 9, DICE = 10, ROD = 11, GRAIN = 12, WATER = 13, DISC = 14, TRAY = 15, HERO = 16;
 
         struct State { public Aff M; public Vector4 Clip; public float ClipR; public float Alpha; }
         static readonly Vector4 NoClip = new Vector4(-1e5f, -1e5f, 1e5f, 1e5f);
@@ -272,6 +272,8 @@ namespace GlamourGames
         /// <summary>Liegender Zylinder mit runden Enden (Stab, Barren), physikalisch beleuchtet.</summary>
         public void DrawRod(Box r, float rad, Paint p, float metal, float rough) => Shape(ROD, r.MidX, r.MidY, 1, 0, r.Width / 2, r.Height / 2, rad, p, new Vector4(metal, rough, 0, 0), Vector4.zero);
         /// <summary>Gesamtbild der 3D-Tischszene (vormultipliziertes Alpha) in ein Zielrechteck.</summary>
+        /// <summary>Einzelobjekt in 3D (Pokal) aus eigener Render-Textur.</summary>
+        public void DrawHero(Box dst, Paint p) => Shape(HERO, dst.MidX, dst.MidY, 1, 0, dst.Width / 2, dst.Height / 2, 0, p, Vector4.zero, Vector4.zero, new Vector4(0, 1, 1, 0));
         public void DrawTray(Box dst, Paint p) => Shape(TRAY, dst.MidX, dst.MidY, 1, 0, dst.Width / 2, dst.Height / 2, 0, p, Vector4.zero, Vector4.zero, new Vector4(0, 1, 1, 0));
         /// <summary>Spielstein-Scheibe (Vier Gewinnt, Chips) mit Rand und Rillen.</summary>
         public void DrawDisc(float x, float y, float r, Paint p, float rough = 0) { if (r > 0) Shape(DISC, x, y, 1, 0, r, r, r, p, new Vector4(0, rough, 0, 0), Vector4.zero); }
