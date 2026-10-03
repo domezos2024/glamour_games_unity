@@ -224,7 +224,7 @@ namespace GlamourGames
         static Cubemap BuildStudioCubemap()
         {
             const int S = 64; var cube = new Cubemap(S, TextureFormat.RGBAHalf, true) { name = "GlamourStudio" };
-            var soft = new[] { (dir: new Vector3(-.5f, .7f, -.5f).normalized, col: new Color(1.6f, 1.55f, 1.5f), size: .82f), (dir: new Vector3(.7f, .3f, -.6f).normalized, col: new Color(.7f, .45f, 1.1f), size: .9f), (dir: new Vector3(0, .2f, 1).normalized, col: new Color(.2f, .9f, 1f), size: .9f) };
+            var soft = new[] { (dir: new Vector3(-.5f, .7f, -.5f).normalized, col: new Color(1.6f, 1.55f, 1.5f), size: .82f), (dir: new Vector3(.7f, .3f, -.6f).normalized, col: new Color(.7f, .45f, 1.1f), size: .9f), (dir: new Vector3(0, .2f, 1).normalized, col: new Color(.3f, .45f, .55f), size: .9f) };
             var faces = new[] { CubemapFace.PositiveX, CubemapFace.NegativeX, CubemapFace.PositiveY, CubemapFace.NegativeY, CubemapFace.PositiveZ, CubemapFace.NegativeZ };
             var buf = new Color[S * S];
             foreach (var f in faces)
