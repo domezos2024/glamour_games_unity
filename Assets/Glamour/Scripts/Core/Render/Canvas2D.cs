@@ -300,7 +300,7 @@ namespace GlamourGames
                 float lx = (k == 0 || k == 3) ? -ex : ex, ly = k < 2 ? -ey : ey;
                 float ox = cx + ax * lx + bx * ly, oy = cy + ay * lx + by * ly;
                 Vector4 u0 = new Vector4(lx, ly, 0, 0);
-                if (type == IMAGE) { u0.z = lx < 0 ? tex.x : tex.z; u0.w = ly < 0 ? tex.y : tex.w; }
+                if (type == IMAGE || type == DICE) { u0.z = lx < 0 ? tex.x : tex.z; u0.w = ly < 0 ? tex.y : tex.w; }
                 Vert(ox, oy, u0, shp, type, blur, p, extra, tng);
             }
             Tri(baseV);
