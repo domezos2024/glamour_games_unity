@@ -40,6 +40,13 @@ HDR-Neon-Grafik und einem Computer-Gegner in drei Stärken für **jedes** Spiel.
 
 Die Gegnerwahl erscheint beim Start jedes Spiels und lässt sich im Spiel jederzeit über den Knopf „Gegner“ ändern.
 
+<div align="center">
+<img src="docs/screenshots/gegnerwahl.jpg" width="800" alt="Gegnerwahl"><br>
+<img src="docs/screenshots/montage-1.jpg" width="800" alt="Spiele 1-6"><br>
+<img src="docs/screenshots/montage-2.jpg" width="800" alt="Spiele 7-0">
+<br><sub>Screenshots aus der Software-Vorschau (Tools/Preview); im Unity-Player kommt zusätzlich das volle URP-Bloom hinzu.</sub>
+</div>
+
 ## Projekt öffnen
 
 1. **Unity Hub** → *Add project from disk* → diesen Ordner wählen. Empfohlen: **Unity 6.3 LTS (6000.3.x)**

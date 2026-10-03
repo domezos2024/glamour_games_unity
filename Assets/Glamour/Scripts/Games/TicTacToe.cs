@@ -9,6 +9,8 @@ namespace GlamourGames
         public override string Title => "Tic Tac Toe";
         public override Col Acc1 => C.Cyan; public override Col Acc2 => C.Pink;
         public override string OppKey => "ttt";
+        /// <summary>"Computer denkt nach" rechts unter den Highscores (unten steht die Statuszeile).</summary>
+        public override Pt ThinkPos => new Pt(1420, 560);
         static readonly int[][] Lines = TttAi.Lines;
         int[] b = new int[9]; float[] pt = new float[9]; int cur = 1, starter = 2, gameIdx; int[] rw = new int[3]; int[] wins = new int[3]; int[] points = new int[3];
         int[] dots = { -1, -1, -1 }; int[] win; bool over, roundEnd; string status = ""; float winT; int hover = -1; bool lockIn;
@@ -28,7 +30,7 @@ namespace GlamourGames
         void NewRound() { roundEnd = false; rw = new int[3]; dots = new[] { -1, -1, -1 }; gameIdx = 0; starter = 3 - starter; NewGame(); }
         void NewGame()
         {
-            gen++; b = new int[9]; pt = new float[9]; win = null; over = false; lockIn = false; winT = 0; cpuAim = -1; hover = -1;
+            gen++; CancelCpuThink(); b = new int[9]; pt = new float[9]; win = null; over = false; lockIn = false; winT = 0; cpuAim = -1; hover = -1;
             cur = gameIdx % 2 == 0 ? starter : 3 - starter; status = $"{PName(cur - 1)} ist dran"; CpuCheck();
         }
         bool CpuTurn => VsCpu && cur == 2 && !over && !tossing;

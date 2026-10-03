@@ -32,7 +32,7 @@ namespace GlamourGames
         void NewMatch() { score = new int[2]; starter = 1; tossing = true; Reset(); CoinToss.Start(this, f => { tossing = false; starter = f + 1; Reset(); }); }
         void Reset()
         {
-            gen++; piles = new[] { 3, 5, 7 }; cur = starter; over = false; fly.Clear(); status = $"{PName(cur - 1)} ist dran"; Modal = null; hp = hs = -1; cpuAiming = false;
+            gen++; CancelCpuThink(); piles = new[] { 3, 5, 7 }; cur = starter; over = false; fly.Clear(); status = $"{PName(cur - 1)} ist dran"; Modal = null; hp = hs = -1; cpuAiming = false;
             for (int i = 0; i < 3; i++) pop[i] = Enumerable.Range(0, 7).Select(k => -k * .08f - i * .1f).ToArray();
             CpuCheck();
         }
@@ -111,8 +111,9 @@ namespace GlamourGames
                     Gfx.Light(c, gx, r.Top + 12, 22, Col.White, hl ? .35f : .18f, 1.5f);
                     c.Restore();
                 }
-                if (hp == p) { var r0 = Rod(p, hs); Gfx.Text(c, $"Nehme {piles[p] - hs}", x + RW / 2 + 70, r0.MidY, 26, (cpuSel ? C.Pink : C.Red).Light(.4f), Al.L, true, 8); }
             }
+            // Hinweis "Nehme N" erst nach allen Stapeln zeichnen, damit er nicht verdeckt wird
+            if (hp >= 0 && hp < 3 && hs >= 0 && hs < piles[hp]) { var r0 = Rod(hp, hs); Gfx.Text(c, $"Nehme {piles[hp] - hs}", PX(hp) + RW / 2 + 70, r0.MidY, 26, (hp >= 0 && cpuAiming ? C.Pink : C.Red).Light(.4f), Al.L, true, 8); }
             foreach (var f in fly)
             {
                 float a = 1 - Ease.Clamp(f.T / 1.1f); c.Save(); c.Translate(f.X, f.Y); c.RotateDegrees(f.Rot * 57.3f); var r = Gfx.Ctr(0, 0, RW, RHt);

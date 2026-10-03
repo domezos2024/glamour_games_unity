@@ -28,13 +28,13 @@ namespace GlamourGames
         }
         void ToToss()
         {
-            toss = true; Modal = null; cards = null; Tm.Clear(); gen++; over = -1;
+            toss = true; Modal = null; cards = null; Tm.Clear(); gen++; CancelCpuThink(); over = -1;
             bNew.Visible = false;
             CoinToss.Start(this, f => { first = f; StartGame(); });
         }
         void StartGame()
         {
-            toss = false; bNew.Visible = true; score = new int[2]; matched = 0; up.Clear(); locked = false; cur = first; gen++;
+            toss = false; bNew.Visible = true; score = new int[2]; matched = 0; up.Clear(); locked = false; cur = first; gen++; CancelCpuThink();
             var pairs = Sym.Concat(Sym).OrderBy(_ => Rng.Shared.Next()).ToArray();
             cards = pairs.Select(s => new Card { Sym = Array.IndexOf(Sym, s) }).ToArray();
             for (int i = 0; i < cards.Length; i++) { cards[i].Lift.V = -400 - i * 20; cards[i].Lift.Target = 0; }
@@ -84,7 +84,7 @@ namespace GlamourGames
         void CpuMaybe(float delay = 0)
         {
             if (!CpuTurn || cards == null || matched == 40) return;
-            int g = gen;
+            int g = gen; over = -1;
             Tm.After(delay, () =>
             {
                 if (g != gen || !CpuTurn) return;
