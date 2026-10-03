@@ -251,7 +251,7 @@ Shader "Glamour/Shape"
                     else g = (vnoise(p * 1.3) * 0.6 + vnoise(p * 3.1 + 9.0) * 0.4 - 0.5) * 2.0;
                     float rim = edge > 0.0 ? pow(saturate(1.0 + d / edge), 2.0) : 0.0;
                     float dark = saturate(-g) * s + rim * 0.55;
-                    float lite = saturate(g) * s * 0.6;
+                    float lite = saturate(g) * s * 0.25;
                     rgb = float3(1, 1, 1) * lite / max(dark + lite, 1e-4);
                     a = saturate(dark + lite) * base.a;
                     cov = cover(d, 0.0, sigma);

@@ -100,11 +100,11 @@ namespace GlamourGames
                     float a = Ease.OutBack(pop[p][k]); if (pop[p][k] <= 0) continue; bool hl = hp == p && k >= hs; var r = Rod(p, k);
                     c.Save(); c.Translate(r.MidX, r.MidY); c.Scale(a, a); c.Translate(-r.MidX, -r.MidY);
                     // Markierung: Mensch rot-orange, Computer pink
-                    var col = hl ? (cpuSel ? C.Pink.Mix(C.Orange, .25f) : C.Red.Mix(C.Orange, .4f)) : C.Gold;
+                    var col = hl ? (cpuSel ? C.Pink.Mix(C.Orange, .25f) : C.Red.Mix(C.Orange, .4f)) : new Col(255, 198, 86);
                     Gfx.Shadow(c, r, 22, 8, .35f, 0, 6);
                     Gfx.Glow(c, r, 22, col, hl ? 16 : 8, hl ? .9f : .35f);
                     Gfx.Rod(c, r, 22, col, 1, hl ? .22f : .3f);
-                    var st = Gfx.Line(col.Light(.6f), 2); st.Glow = hl ? 1.8f : 1.15f; c.DrawRoundRect(r, 22, 22, st);
+                    if (hl) { var st = Gfx.Line(col.Light(.6f), 2); st.Glow = 1.8f; c.DrawRoundRect(r, 22, 22, st); }
                     for (int q = 0; q < 3; q++) c.DrawCircle(r.Left + 34 + q * 8, r.MidY, 2, Gfx.Fill(col.Dark(.4f)));
                     // wandernder Glanzpunkt
                     float gx = r.Left + 30 + (r.Width - 60) * (.5f + .5f * MathF.Sin(Time * 1.3f + k * .7f + p * 1.9f));

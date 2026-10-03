@@ -48,11 +48,17 @@ namespace GlamourGames
         /// <summary>Spieltisch: radialer Verlauf mit Filzstruktur, Randabdunklung und Licht von oben.</summary>
         public static void RectRadial(Canvas2D c, Box r, float rad, float cx, float cy, float radius, Col inner, Col outer)
         {
+            // gepolsterte Lederbande um den Tisch
+            var rail = Inflate(r, 13); var leather = outer.Mix(new Col(34, 16, 10), .72f);
+            Shadow(c, rail, rad + 13, 16, .55f, 0, 10);
+            c.DrawRoundRect(rail, rad + 13, rad + 13, Line(leather.Dark(.6f), 28));
+            c.DrawRoundRect(rail.Offset(0, -2), rad + 13, rad + 13, Line(leather, 18));
+            c.DrawRoundRect(rail.Offset(0, -6), rad + 13, rad + 13, Line(leather.Light(.28f).A(.45f), 4));
             var p = Fill(Col.White); p.Shader = Grad.Radial(cx, cy, radius, inner, outer); c.DrawRoundRect(r, rad, rad, p);
             Felt(c, r, rad);
             c.Save(); c.ClipRoundRect(r, rad); Light(c, cx, r.Top + r.Height * .38f, radius * .9f, inner.Light(.35f), .16f, 1.1f); c.Restore();
         }
-        public static void Felt(Canvas2D c, Box r, float rad, float strength = .32f) => c.DrawGrain(r, rad, 1, strength, Math.Min(r.Width, r.Height) * .09f, Fill(Col.White));
+        public static void Felt(Canvas2D c, Box r, float rad, float strength = .13f) => c.DrawGrain(r, rad, 1, strength, Math.Min(r.Width, r.Height) * .09f, Fill(Col.White));
         public static void Paper(Canvas2D c, Box r, float rad, float strength = .07f) => c.DrawGrain(r, rad, 2, strength, 0, Fill(Col.White));
         /// <summary>Stab/Barren mit Metall- oder Kunststoffoberflaeche.</summary>
         public static void Rod(Canvas2D c, Box r, float rad, Col col, float metal = 1, float rough = .3f) => c.DrawRod(r, rad, Fill(col), metal, rough);

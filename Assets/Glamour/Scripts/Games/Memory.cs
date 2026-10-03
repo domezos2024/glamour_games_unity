@@ -138,6 +138,8 @@ namespace GlamourGames
             c.Save(); c.Translate(r.MidX, r.MidY - lift + cd.Lift.V); c.RotateDegrees(rot); c.Scale(Math.Max(sx, .02f) * sc, sc);
             var rr = Gfx.Ctr(0, 0, CW, CH); bool face = f > .5f; var hue = Col.FromHsv(cd.Sym * 18, 70, 100);
             Gfx.Shadow(c, rr, 14, 8 + lift * .4f, .42f, 3, 8 + lift);
+            Gfx.Shadow(c, rr, 14, 2.5f, Math.Max(0, .45f - lift * .02f), 1, 2.5f);
+            c.DrawRoundRect(rr.Offset(0, 2.5f), 14, 14, Gfx.Fill(face ? hue.Dark(.12f) : new Col(18, 4, 40)));
             if (!face)
             {
                 Gfx.Glow(c, rr, 14, C.Purple, 8, .25f + cd.Hov * .5f);
@@ -159,6 +161,9 @@ namespace GlamourGames
                 if (cd.Matched) Gfx.Light(c, 0, 0, 80, C.Gold, .14f + .08f * MathF.Sin(cd.MatchT * 4), 1.8f);
                 Gfx.Image(c, Assets.Img(Sym[cd.Sym]), Gfx.Ctr(0, 0, CW * .8f, CW * .8f));
             }
+            Gfx.Paper(c, rr, 14, face ? .06f : .09f);
+            var sheen = Gfx.Fill(Col.White.A(.07f + .1f * MathF.Sin(f * MathF.PI) + cd.Hov * .05f)); sheen.Additive = true; sheen.Blur = CW * .2f;
+            c.Save(); c.ClipRoundRect(rr, 14); c.DrawOval(-CW * .25f + CW * .5f * f, -CH * .3f, CW * .5f, CH * .14f, sheen); c.Restore();
             // vom Computer gewaehlte Karte kurz pink markieren
             if (cd.CpuT >= 0) { float a = 1 - Ease.Clamp(cd.CpuT / 1.2f); Gfx.Glow(c, rr, 14, C.Pink, 14, .9f * a); }
             c.Restore();
