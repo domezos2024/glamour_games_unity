@@ -59,7 +59,7 @@ Die Gegnerwahl erscheint beim Start jedes Spiels und lässt sich im Spiel jederz
    oder per Kommandozeile:
    `Unity -batchmode -quit -projectPath . -executeMethod GlamourGames.EditorTools.ProjectBootstrap.CiBuild`
 
-> Tipp: Nach dem ersten Öffnen die von Unity erzeugten `.meta`-Dateien und `ProjectSettings/*.asset` committen.
+> Die von Unity 6000.3.25f1 erzeugten `.meta`-Dateien und `ProjectSettings` sind eingecheckt (GUIDs stabil).
 
 ## Bedienung
 
