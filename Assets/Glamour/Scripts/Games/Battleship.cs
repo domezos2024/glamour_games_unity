@@ -190,11 +190,8 @@ namespace GlamourGames
         void Water(Canvas2D c, float gx, float gy, float s, bool labels)
         {
             var r = Gfx.R(gx - 8, gy - 8, N * s + 16, N * s + 16); Gfx.Shadow(c, r, 14, 16, .5f, 0, 12); Gfx.Glow(c, r, 14, C.Cyan, 16, .35f);
-            Gfx.RectGrad(c, r, 14, new Col(0, 60, 100), new Col(0, 12, 34)); c.Save(); c.ClipRoundRect(r, 14);
-            // wandernde Lichtflecken (Kaustik) und Wellenlinien
-            for (int k = 0; k < 4; k++) { float lx = gx + N * s * (.5f + .42f * MathF.Sin(Time * .23f + k * 1.7f)), ly = gy + N * s * (.5f + .42f * MathF.Cos(Time * .19f + k * 2.3f)); Gfx.Light(c, lx, ly, s * 2.6f, C.Cyan, .05f, 1.2f); }
-            for (int k = 0; k < 9; k++) { float y = gy + k * s * N / 8 - 8; using var wp = new Path2D(); wp.MoveTo(gx - 10, y); for (float x = gx - 10; x < gx + N * s + 10; x += 12) wp.LineTo(x, y + MathF.Sin(x * .03f + Time * 1.4f + k) * 4); var lp = Gfx.Line(C.Cyan.A(.07f), 2); lp.Glow = 1.3f; c.DrawPath(wp, lp); }
-            c.Restore(); var bp = Gfx.Line(C.Cyan.A(.8f), 2.5f); bp.Glow = 1.6f; c.DrawRoundRect(r, 14, 14, bp);
+            Gfx.Water(c, r, 14, Time);
+            var bp = Gfx.Line(C.Cyan.A(.8f), 2.5f); bp.Glow = 1.6f; c.DrawRoundRect(r, 14, 14, bp);
             var gl = Gfx.Line(C.Cyan.A(.22f), 1.5f); gl.Glow = 1.2f; for (int k = 0; k <= N; k++) { c.DrawLine(gx + k * s, gy, gx + k * s, gy + N * s, gl); c.DrawLine(gx, gy + k * s, gx + N * s, gy + k * s, gl); }
             if (labels) for (int k = 0; k < N; k++) { Gfx.Text(c, ((char)('A' + k)).ToString(), gx + k * s + s / 2, gy - 22, 20, C.Cyan.Light(.4f)); Gfx.Text(c, (k + 1).ToString(), gx - 24, gy + k * s + s / 2, 20, C.Cyan.Light(.4f)); }
         }

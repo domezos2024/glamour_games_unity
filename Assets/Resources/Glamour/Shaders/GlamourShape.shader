@@ -238,6 +238,29 @@ Shader "Glamour/Shape"
                     rgb = shadePBR(normalize(n + float3(0, brush * 0.05, 0)), alb, metal, rough);
                     cov = cover(sdRoundBox(p, hs, rad), sw, sigma);
                 }
+                else if (type == 13) // Wasser: Wellen-Normalen, Kaustik, Sonnenglanz und Himmelsspiegelung (t3.x = Zeit)
+                {
+                    float t = i.t3.x;
+                    float2 q = p * 0.018;
+                    float2 g = 0;
+                    float2 d1 = normalize(float2(1.0, 0.35)), d2 = normalize(float2(-0.6, 1.0)), d3 = normalize(float2(0.2, -1.0));
+                    g += d1 * 1.6 * 0.10 * cos(dot(q, d1) * 1.6 * 6.2832 + t * 1.3);
+                    g += d2 * 2.9 * 0.05 * cos(dot(q, d2) * 2.9 * 6.2832 - t * 1.7);
+                    g += d3 * 5.3 * 0.022 * cos(dot(q, d3) * 5.3 * 6.2832 + t * 2.3);
+                    float e = 0.05, n0 = vnoise(q * 6.0 + t * 0.35);
+                    g += float2(vnoise(q * 6.0 + float2(e, 0) + t * 0.35) - n0, vnoise(q * 6.0 + float2(0, e) + t * 0.35) - n0) / e * 0.025;
+                    float3 n = normalize(float3(-g.x, -g.y, 1.0));
+                    float depth = saturate(0.5 + p.y / max(hs.y * 2.0, 1.0));
+                    float3 deep = lerp(float3(0.0, 0.10, 0.16), float3(0.0, 0.03, 0.08), depth);
+                    float c1 = vnoise(q * 9.0 + n.xy * 3.0 + t * 0.4), c2 = vnoise(q * 9.7 - n.xy * 3.0 - t * 0.33);
+                    float caus = pow(saturate(1.0 - abs(c1 - c2) * 3.0), 6.0);
+                    rgb = deep + float3(0.05, 0.32, 0.36) * caus * 0.45;
+                    rgb += lightGGX(n, normalize(float3(-0.45, -0.62, 0.65)), float3(1.0, 0.97, 0.92) * 1.4, 0, float3(0.02, 0.02, 0.02), 0, 0.12);
+                    float3 R = float3(0, 0, -1) + 2.0 * n.z * n;
+                    float fr = 0.02 + 0.98 * pow(1.0 - n.z, 5.0);
+                    rgb += envStudio(R) * (fr + 0.04) * 0.6;
+                    cov = cover(sdRoundBox(p, hs, rad), 0.0, sigma);
+                }
                 else if (type == 12) // Struktur-Overlay: Filz (t3.x=1) oder Papier (t3.x=2), Staerke t3.y, Randabdunklung t3.z
                 {
                     float d = sdRoundBox(p, hs, rad);
