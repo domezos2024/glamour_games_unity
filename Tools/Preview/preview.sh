@@ -14,7 +14,7 @@ np.asarray(Image.open(root+'/Assets/Resources/Glamour/font_atlas.png.bytes').con
 np.asarray(Image.open(root+'/Assets/Resources/Glamour/img_atlas.png.bytes').convert('RGBA')).tofile(cache+'/img.raw')
 PY
 fi
-B=$HOME/.glamour_preview_build; mkdir -p "$B"
+B=$HOME/.glamour_preview_build_${PREVIEW_ONLY:-all}; B=${B%.cs}; mkdir -p "$B"
 declare -A CLS=( [Memory.cs]=MemoryGame [TicTacToe.cs]=TicTacToe [ConnectFour.cs]=ConnectFour [Battleship.cs]=Battleship [Snake.cs]=SnakeGame [Kniffel.cs]=Kniffel [Nim.cs]=Nim [Slot.cs]=SlotGame [Blackjack.cs]=Blackjack [Poker.cs]=Poker )
 INC=""; { echo "namespace GlamourGames {"
 for f in "${!CLS[@]}"; do
