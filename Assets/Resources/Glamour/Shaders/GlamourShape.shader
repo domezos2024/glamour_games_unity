@@ -11,6 +11,7 @@ Shader "Glamour/Shape"
         _ImgTex ("Image Atlas", 2D) = "white" {}
         _DiceTex ("3D Dice", 2D) = "black" {}
         _TrayTex ("3D Tray", 2D) = "black" {}
+        _HeroTex ("3D Hero", 2D) = "black" {}
         _FontAlpha ("Font atlas uses alpha channel", Float) = 0
     }
     SubShader
@@ -33,6 +34,7 @@ Shader "Glamour/Shape"
             sampler2D _ImgTex;
             sampler2D _DiceTex;
             sampler2D _TrayTex;
+            sampler2D _HeroTex;
             float _FontAlpha;
 
             struct appdata
@@ -304,9 +306,9 @@ Shader "Glamour/Shape"
                     a *= tx.a;
                     cov = rad > 0.0 ? cover(sdRoundBox(p, hs, rad), 0.0, sigma) : 1.0;
                 }
-                else if (type == 10 || type == 15) // 3D-Wuerfel / 3D-Tischszene aus Render-Textur (linear, vormultipliziert)
+                else if (type == 10 || type == 15 || type == 16) // 3D-Wuerfel / Tischszene / Pokal aus Render-Textur (linear, vormultipliziert, Pokal in HDR)
                 {
-                    float4 tx = type == 10 ? tex2D(_DiceTex, i.t0.zw) : tex2D(_TrayTex, i.t0.zw);
+                    float4 tx = type == 10 ? tex2D(_DiceTex, i.t0.zw) : type == 15 ? tex2D(_TrayTex, i.t0.zw) : tex2D(_HeroTex, i.t0.zw);
                     rgb = tx.rgb / max(tx.a, 1e-4);
                     a *= tx.a;
                 }

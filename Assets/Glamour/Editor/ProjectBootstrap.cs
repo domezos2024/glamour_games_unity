@@ -59,6 +59,7 @@ namespace GlamourGames.EditorTools
                 AssetDatabase.SaveAssets();
                 Debug.Log("[Glamour] URP-Pipeline angelegt: " + PipelinePath);
             }
+            if (asset.hdrColorBufferPrecision != HDRColorBufferPrecision._64Bits || asset.colorGradingMode != ColorGradingMode.HighDynamicRange) { asset.hdrColorBufferPrecision = HDRColorBufferPrecision._64Bits; asset.colorGradingMode = ColorGradingMode.HighDynamicRange; EditorUtility.SetDirty(asset); }
             if (GraphicsSettings.defaultRenderPipeline != asset) { GraphicsSettings.defaultRenderPipeline = asset; EditorUtility.SetDirty(asset); }
             int cur = QualitySettings.GetQualityLevel();
             for (int i = 0; i < QualitySettings.names.Length; i++)

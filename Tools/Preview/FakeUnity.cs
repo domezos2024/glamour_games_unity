@@ -65,7 +65,7 @@ namespace UnityEngine
     public enum TextureWrapMode { Clamp, Repeat }
     public class Texture2D : Object
     {
-        public TextureFormat format; public FilterMode filterMode; public TextureWrapMode wrapMode; public int anisoLevel;
+        public TextureFormat format; public FilterMode filterMode; public TextureWrapMode wrapMode; public int anisoLevel; public float mipMapBias;
         public Texture2D(int w, int h, TextureFormat f, bool mips, bool linear) { format = f; }
         public void Apply(bool a, bool b) { }
     }

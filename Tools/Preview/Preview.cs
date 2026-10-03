@@ -88,6 +88,9 @@ namespace GlamourGames
                         if (ev.a == "c") { Down(cur); Up(cur); }
                         if (ev.a == "k") Key(cur, (Key)Enum.Parse(typeof(Key), ev.p1));
                         if (ev.a == "ch" && cur.Modal != null) foreach (var ch in ev.p1) cur.Modal.Char(ch);
+                        if (ev.a == "win") { cur.Modal = null; cur.Celebrate(ev.p1 == "p" ? C.Pink : C.Cyan, 5, ev.p2 == "" ? 1.1f : F(ev.p2), "Spieler 1 gewinnt!"); }
+                        if (ev.a == "bigwin") { cur.Modal = null; cur.Celebrate(C.Gold, 5, 1.2f); }
+                        if (ev.a == "res") cur.Result("Spieler 1 gewinnt!", "Stand: 3 : 1", ev.p1 == "p" ? C.Pink : C.Cyan, ("Nochmal", C.Green, null), ("Menü", C.Purple, null));
                         if (ev.a == "s") { Render(canvas, cur, outp.Replace(".png", $"_{shot++}.png")); }
                     }
                     catch (Exception x) { Console.WriteLine("event error: " + x); }

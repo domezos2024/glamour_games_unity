@@ -8,7 +8,8 @@ namespace GlamourGames
     public abstract class Scene
     {
         public readonly Ui Ui = new Ui(); public Modal Modal; public readonly Particles Fx = new Particles(); public readonly Timers Tm = new Timers(); public readonly Coro Co = new Coro(); public float Time;
-        float celT = -1, celDur; Col celCol;
+        /// <summary>Laufende Siegesinszenierung (oder null).</summary>
+        public RewardShow Reward;
         public virtual string Title => ""; public virtual Col Acc1 => C.Cyan; public virtual Col Acc2 => C.Pink; public virtual bool Chrome => true;
         /// <summary>Wie viele Lichtblumen der Hintergrund zeigt (0..1).</summary>
         public virtual float Meadow => 1;
@@ -45,52 +46,35 @@ namespace GlamourGames
         public void CancelCpuThink() { cpuThinkT = 0; thinkTok++; }
         float cpuThinkT, cpuThinkMax;
 
-        string banner; Col bannerCol;
         public void Celebrate(Col col, float dur = 5, float power = 1, string banner = null)
         {
-            this.banner = banner; bannerCol = col;
-            Log.I("celebrate " + GetType().Name); celT = 0; celDur = dur; celCol = col; Sfx.Play(S.Fanfare, .8f); Sfx.Play(S.Cheer, .7f); Tm.After(.6f, () => Sfx.Play(S.Sparkle, .6f));
+            bool cpuWon = VsCpu && banner != null && banner.StartsWith(PName(1));
+            Reward = new RewardShow(col, dur, power, banner, !cpuWon); Lens.Kick?.Invoke(power);
+            Log.I("celebrate " + GetType().Name + (Reward.Trophy ? " +pokal" : "")); Sfx.Play(S.Fanfare, .8f); Sfx.Play(S.Cheer, .7f); Tm.After(.6f, () => Sfx.Play(S.Sparkle, .6f));
             var rnd = Rng.Shared; var cols = new[] { col, C.Gold, C.Pink, C.Cyan, C.Green, C.Purple };
             Fx.Cannon(-10, 900, -1.05f, (int)(80 * power)); Fx.Cannon(1610, 900, -2.09f, (int)(80 * power)); Sfx.Play(S.Pop, .8f, .8f);
             Fx.Shockwave(800, 450, col, 700, .9f); Fx.Shockwave(800, 450, C.Gold, 500, .7f); App.Flash(col.Light(.5f), .5f); App.Shake(12);
+            Fx.CoinShower(1600, (int)(45 * power), dur * .45f); Fx.Streamers(1600, (int)(16 * power), dur * .3f);
+            if (Reward.Trophy) Tm.After(1f, () => { var b = Reward?.TrophyBox ?? Gfx.Ctr(800, 525, 376, 470); Fx.CoinFountain(b.MidX, b.Top + b.Height * .12f, (int)(34 * power)); Fx.Glints(b, 10, Metal.GoldLight, .4f); Sfx.Play(S.Coin, .7f); Sfx.Play(S.Sparkle, .8f, 1.2f); Lens.Kick?.Invoke(power * 1.1f); });
             for (int i = 0; i < (int)(dur * 3.4f * power); i++) { float d = .25f + i * .3f + (float)rnd.NextDouble() * .15f; Tm.After(d, () => Fx.Rocket(200 + (float)rnd.NextDouble() * 1200, 120 + (float)rnd.NextDouble() * 320, cols[rnd.Next(cols.Length)])); }
             for (int i = 0; i < 4; i++) { int k = i; float d = .5f + i * 1.4f * (dur / 5); Tm.After(d, () => { float x = 250 + (float)rnd.NextDouble() * 1100; Fx.Lightning(x + (float)rnd.NextDouble() * 200 - 100, -20, x, 300 + (float)rnd.NextDouble() * 350, k % 2 == 0 ? col.Light(.3f) : C.Gold); Sfx.Play(S.Zap, .35f); App.Shake(8); }); }
             for (int i = 0; i < 3; i++) { float d = 1.2f + i * 1.6f; Tm.After(d, () => { Fx.Cannon(-10, 900, -1.05f, 40); Fx.Cannon(1610, 900, -2.09f, 40); Fx.Petals(800, 500, 30, cols, 500); Sfx.Play(S.Pop, .6f, 1.1f); }); }
         }
-        void DrawBanner(Canvas2D c)
-        {
-            if (banner == null || celT < 0) return;
-            float a = 1 - Ease.Clamp((celT - celDur + .8f) / .8f), u = Ease.OutElastic(celT / 1f) * (1 + .03f * MathF.Sin(celT * 7));
-            if (a <= 0) return;
-            c.Save(); c.Translate(800, 190); c.Scale(u);
-            float fs = Math.Min(96, 1300f / Math.Max(6, banner.Length) * 1.7f);
-            Gfx.BannerText(c, banner, fs, bannerCol, a); c.Restore();
-        }
-        void DrawRays(Canvas2D c)
-        {
-            float a = Ease.Clamp(celT / .5f) * (1 - Ease.Clamp((celT - celDur) / 2f)); if (a <= 0) return;
-            c.Save(); c.Translate(800, 450); c.RotateDegrees(celT * 14);
-            for (int i = 0; i < 16; i++)
-            {
-                using var p = new Path2D(); float ang = i * MathF.PI * 2 / 8 / 2, w = .11f; p.MoveTo(0, 0); p.LineTo(MathF.Cos(ang - w) * 1800, MathF.Sin(ang - w) * 1800); p.LineTo(MathF.Cos(ang + w) * 1800, MathF.Sin(ang + w) * 1800); p.Close();
-                var pt = Gfx.Fill(Col.White); pt.Shader = Grad.Radial(0, 0, 1500, (i % 2 == 0 ? celCol : C.Gold).A(.16f * a), (i % 2 == 0 ? celCol : C.Gold).A(0)); pt.Additive = true; pt.Glow = 1.3f; c.DrawPath(p, pt);
-            }
-            c.Restore();
-        }
         public void BaseUpdate(float dt)
         {
-            Time += dt; if (celT >= 0) { celT += dt; if (celT > celDur + 2) celT = -1; }
+            Time += dt; if (Reward != null) { Reward.Update(dt); if (Reward.Done) Reward = null; }
             if (cpuThinkT > 0) cpuThinkT = Math.Max(0, cpuThinkT - dt);
             for (int i = pops.Count - 1; i >= 0; i--) { var q = pops[i]; q.t += dt; if (q.t > 1.4f) pops.RemoveAt(i); else pops[i] = q; }
             Tm.Update(dt); Co.Update(dt); Fx.Update(dt); Ui.Update(dt); Modal?.Update(dt); Update(dt);
         }
         public void BaseDraw(Canvas2D c)
         {
-            Backdrop.DrawMeadow(c, Time, Acc1, Acc2, Meadow); if (celT >= 0) DrawRays(c);
+            Backdrop.DrawMeadow(c, Time, Acc1, Acc2, Meadow); Reward?.DrawBack(c);
             if (Chrome && Title.Length > 0) { Gfx.Text(c, Title, 800, 52, 44, Col.White, Al.C, true, 14, true); Gfx.Text(c, Title, 800, 52, 44, Acc1.Light(.55f), Al.C, true, 0, true); }
             Draw(c); Ui.Draw(c);
             if (cpuThinkT > 0) DrawThinking(c);
-            Fx.Draw(c); DrawBanner(c);
+            bool hideT = Modal != null && Modal.Win; Reward?.DrawMid(c, hideT);
+            Fx.Draw(c); Reward?.DrawTop(c, hideT);
             foreach (var q in pops)
             {
                 float a = 1 - Ease.InCubic((q.t - .8f) / .6f), sc = Ease.OutBack(q.t / .3f); c.Save(); c.Translate(q.x, q.y - q.t * 70); c.Scale(sc, sc);
@@ -111,10 +95,17 @@ namespace GlamourGames
         public void Result(string title, string sub, Col col, params (string, Col, Action)[] btns) => Result(title, sub, col, null, btns);
         public void Result(string title, string sub, Col col, List<string> lines, params (string, Col, Action)[] btns)
         {
-            var m = new Modal { Title = title, Sub = sub, Col = col, H = 380 + (lines?.Count ?? 0) * 34 };
+            var m = new Modal { Title = title, Sub = sub, Col = col, H = 380 + (lines?.Count ?? 0) * 34, Win = IsWin(title, col) };
+            if (m.Win) { Fx.CoinShower(1600, 36, 1.2f); Lens.Kick?.Invoke(.6f); Tm.After(.35f, () => Sfx.Play(S.Sparkle, .7f, 1.1f)); }
             if (lines != null) m.Lines = lines;
             foreach (var (t, cc, a) in btns) { var act = a; m.Btns.Add(new Button { Text = t, Col = cc, Click = () => { Modal = null; act?.Invoke(); }, Size = 26 }); }
             Modal = m; Sfx.Play(S.Turn);
+        }
+        /// <summary>Sieger-Dialog (mit Pokal), wenn ein Mensch gewinnt.</summary>
+        bool IsWin(string title, Col col)
+        {
+            var t = title.ToLowerInvariant(); if (col == C.Red || t.Contains("ausgeschieden") || VsCpu && title.StartsWith(PName(1))) return false;
+            return t.Contains("gewinnt") || t.Contains("bestwert") || t.Contains("sieg");
         }
         public void NameEntry(string key, int score, string title, Action done)
         {
@@ -219,7 +210,7 @@ namespace GlamourGames
     public class Modal
     {
         public string Title, Sub; public Col Col = C.Gold; public readonly List<Button> Btns = new List<Button>(); Button hot, down;
-        public bool Input, Keep, AllowEmpty; public string Text = ""; public int Max = 5; public Action<string> Submit; public Action Cancel;
+        public bool Input, Keep, AllowEmpty, Win; public string Text = ""; public int Max = 5; public Action<string> Submit; public Action Cancel;
         public float T; public float W = 760, H = 420; public float CY => Input ? 131 : 450;
         public List<string> Lines = new List<string>();
         public Action<Canvas2D, Box> Extra;
@@ -236,12 +227,14 @@ namespace GlamourGames
         {
             Layout(); float a = Ease.OutCubic(T / .25f), sc = .8f + .2f * Ease.OutBack(T / .4f);
             c.DrawRect(-2000, -2000, 5600, 4900, Gfx.Fill(Col.Black.A(.62f * a)));
-            c.Save(); c.Translate(800, CY); c.Scale(sc, sc); c.Translate(-800, -CY);
             var r = Gfx.Ctr(800, CY, W, H);
+            if (Win) { Metal.Rays(c, 800, r.Top + 10, T, Metal.Gold, Col.Light(.3f), a * .45f, 1100, 20); Gfx.Light(c, 800, r.Top, 380, Metal.Gold, .16f * a, 1.3f); }
+            c.Save(); c.Translate(800, CY); c.Scale(sc, sc); c.Translate(-800, -CY);
             Gfx.Shadow(c, r, 28, 24, .6f * a, 0, 16);
             Gfx.Glow(c, r, 28, Col, 26, .6f * a); Gfx.RectGrad(c, r, 28, new Col(38, 16, 72, 250), new Col(12, 4, 28, 252)); Gfx.Stroke(c, r, 28, Col.A(.9f), 3);
             Gfx.RectGrad(c, new Box(r.Left + 4, r.Top + 3, r.Right - 4, r.Top + 70), 24, Col.White.A(.07f), Col.White.A(0));
-            Gfx.Text(c, Title, 800, r.Top + (Input ? 44 : 70), Input ? 44 : 54, Col, Al.C, true, 14, true);
+            if (Win) DrawWin(c, r, a);
+            else Gfx.Text(c, Title, 800, r.Top + (Input ? 44 : 70), Input ? 44 : 54, Col, Al.C, true, 14, true);
             float y = r.Top + (Input ? 92 : 140);
             if (Sub != null) { Gfx.Text(c, Sub, 800, y, Input ? 26 : 28, Col.White, Al.C, false); y += Input ? 34 : 46; }
             foreach (var l in Lines) { Gfx.Text(c, l, 800, y, 24, C.Dim, Al.C, false); y += 36; }
@@ -253,6 +246,16 @@ namespace GlamourGames
             Extra?.Invoke(c, r);
             foreach (var b in Btns.ToList()) b.Draw(c);
             c.Restore();
+        }
+        void DrawWin(Canvas2D c, Box r, float a)
+        {
+            float u = (T % 3.2f) / 1.4f;
+            if (u <= 1) { float sx = r.Left - 120 + u * (r.Width + 240); c.Save(); c.ClipRect(new Box(sx - 90, r.Top - 10, sx + 90, r.Bottom + 10)); var sp = Gfx.Line(Col.White.A(.9f * a), 4); sp.Additive = true; sp.Glow = 2.4f; sp.Blur = 2; c.DrawRoundRect(r, 28, 28, sp); c.Restore(); }
+            var gl = Gfx.Line(Metal.Gold.A(.85f * a), 2); gl.Glow = 1.5f; c.DrawRoundRect(Gfx.Inflate(r, -9), 21, 21, gl);
+            var tb = Trophy3D.Rect(800, r.Top - 74, 210); float rise = (1 - Ease.OutBack(Ease.Clamp((T - .1f) / .6f))) * 60;
+            Trophy3D.Draw(c, tb.Offset(0, rise), .5f + T * .8f, Ease.Clamp((T - .1f) / .3f));
+            for (int i = 0; i < 4; i++) { float ph = (T * .9f + i * .27f) % 1; Metal.Glint(c, tb.Left + tb.Width * Metal.H(i * 7 + (int)(T * .9f + i * .27f)), tb.Top + tb.Height * (.1f + .5f * Metal.H(i * 13 + (int)(T * .9f + i * .27f))), 22 * MathF.Sin(ph * MathF.PI), Metal.GoldLight, MathF.Sin(ph * MathF.PI) * a); }
+            c.Save(); c.Translate(800, r.Top + 70); Metal.Text(c, Title, 54, Col, 1, T > .6f ? ((T - .6f) % 3.2f) / 1.3f : -1); c.Restore();
         }
         public Box FieldRect => Gfx.Ctr(800, CY - H / 2 + 150, 380, 62);
         public bool AnyHover => Btns.Any(b => b.Hov.V > .3f);
