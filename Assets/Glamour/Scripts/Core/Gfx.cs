@@ -45,10 +45,25 @@ namespace GlamourGames
             var p = Fill(Col.White); p.Shader = Grad.Linear(x0, y0, x1, y1, a, b); c.DrawRoundRect(r, rad, rad, p);
         }
         /// <summary>Radialer Verlauf als Flaechenfuellung (z.B. Spieltisch-Filz).</summary>
+        /// <summary>Spieltisch: radialer Verlauf mit Filzstruktur, Randabdunklung und Licht von oben.</summary>
         public static void RectRadial(Canvas2D c, Box r, float rad, float cx, float cy, float radius, Col inner, Col outer)
         {
+            // gepolsterte Lederbande um den Tisch
+            var rail = Inflate(r, 13); var leather = outer.Mix(new Col(34, 16, 10), .72f);
+            Shadow(c, rail, rad + 13, 16, .55f, 0, 10);
+            c.DrawRoundRect(rail, rad + 13, rad + 13, Line(leather.Dark(.6f), 28));
+            c.DrawRoundRect(rail.Offset(0, -2), rad + 13, rad + 13, Line(leather, 18));
+            c.DrawRoundRect(rail.Offset(0, -6), rad + 13, rad + 13, Line(leather.Light(.28f).A(.45f), 4));
             var p = Fill(Col.White); p.Shader = Grad.Radial(cx, cy, radius, inner, outer); c.DrawRoundRect(r, rad, rad, p);
+            Felt(c, r, rad);
+            c.Save(); c.ClipRoundRect(r, rad); Light(c, cx, r.Top + r.Height * .38f, radius * .9f, inner.Light(.35f), .16f, 1.1f); c.Restore();
         }
+        public static void Disc(Canvas2D c, float x, float y, float r, Col col, float rough = 0) => c.DrawDisc(x, y, r, Fill(col), rough);
+        public static void Water(Canvas2D c, Box r, float rad, float time) => c.DrawWater(r, rad, time, Fill(Col.White));
+        public static void Felt(Canvas2D c, Box r, float rad, float strength = .13f) => c.DrawGrain(r, rad, 1, strength, Math.Min(r.Width, r.Height) * .09f, Fill(Col.White));
+        public static void Paper(Canvas2D c, Box r, float rad, float strength = .07f) => c.DrawGrain(r, rad, 2, strength, 0, Fill(Col.White));
+        /// <summary>Stab/Barren mit Metall- oder Kunststoffoberflaeche.</summary>
+        public static void Rod(Canvas2D c, Box r, float rad, Col col, float metal = 1, float rough = .3f) => c.DrawRod(r, rad, Fill(col), metal, rough);
         public static void Stroke(Canvas2D c, Box r, float rad, Col col, float w) => c.DrawRoundRect(r, rad, rad, Line(col, w));
         /// <summary>Weicher Neon-Schein entlang des Rands (HDR, wird vom Bloom verstaerkt).</summary>
         public static void Glow(Canvas2D c, Box r, float rad, Col col, float sigma, float a = 1)
@@ -67,7 +82,7 @@ namespace GlamourGames
             var p = Fill(col.A(a * col.Alpha / 255f)); p.Additive = true; p.Glow = glow; c.DrawRadial(x, y, rad, p);
         }
         /// <summary>Beleuchtete 3D-Kugel.</summary>
-        public static void Ball(Canvas2D c, float x, float y, float r, Col col) => c.DrawBall(x, y, r, Fill(col));
+        public static void Ball(Canvas2D c, float x, float y, float r, Col col, float metal = 0, float rough = 0) => c.DrawBall(x, y, r, Fill(col), metal, rough);
 
         // ------------------------------------------------------------------ Text
         static float Bump(float s) { if (s >= 32) return s; float b = s * 1.15f; return s >= 16 && b < 24 ? 24 : b; }

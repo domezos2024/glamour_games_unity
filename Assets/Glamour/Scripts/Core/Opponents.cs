@@ -24,9 +24,12 @@ namespace GlamourGames
         /// Zeigt den Dialog "Gegner waehlen". done wird mit der Auswahl aufgerufen; Escape fuehrt zurueck ins Menue.
         /// humanLabel z.B. "2 Spieler" oder "Solo" (bei Spielen, die allein spielbar sind).
         /// </summary>
+        /// <summary>Automatische Screenshots (--skip=N): 1 = Gegnerwahl ueberspringen, 2 = zusaetzlich Muenzwurf.</summary>
+        public static int Skip;
         public static void Pick(Scene s, string key, Action<Opponent> done, string humanLabel = "2 Spieler", string humanSub = "an einem PC", string title = "Gegner wählen")
         {
             var last = Load(key);
+            if (Skip > 0) { done(last); return; }
             var m = new Modal { Title = title, Col = C.Cyan, W = 1180, H = 470, Sub = "Gegen wen möchtest du spielen?" };
             m.Lines.Add("Die Wahl wird gespeichert und lässt sich im Spiel jederzeit ändern.");
             m.Cancel = () => { s.Modal = null; App.Go(new Menu()); };

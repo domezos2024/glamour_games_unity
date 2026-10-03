@@ -14,7 +14,7 @@ namespace GlamourGames
     /// </summary>
     public static class DiceRig
     {
-        const int Layer = 31, Cols = 4, Rows = 2, TilePx = 448, TexTile = 256;
+        const int Layer = 31, Cols = 4, Rows = 3, TilePx = 448, TexTile = 256;
         const float TileW = 4f, Bevel = .2f;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -70,15 +70,90 @@ namespace GlamourGames
                 r.shadowCastingMode = ShadowCastingMode.Off; r.receiveShadows = false; r.reflectionProbeUsage = ReflectionProbeUsage.BlendProbes; r.lightProbeUsage = LightProbeUsage.Off;
                 g.SetActive(false); dice[i] = g.transform; rends[i] = r;
             }
-            Die3D.Render3D = Render; Die3D.FrameBegin = () => used = 0; Die3D.FrameEnd = EndFrame;
+            coinMesh = BuildCoinMesh();
+            SetupTray(root, main);
+            Chip3D.Render3D = RenderChips; Ship3D.Render3D = RenderShip;
+            Die3D.Render3D = Render; Coin3D.Render3D = RenderCoin; Die3D.RenderTray = RenderTray; Die3D.FrameBegin = () => used = 0; Die3D.FrameEnd = EndFrame;
             cam.enabled = false;
             Log.I("dice3d bereit");
         }
 
+        static Light keyLight;
         static void Light(GameObject root, string name, Vector3 dir, Color col, float intensity)
         {
             var g = new GameObject(name + " Light"); g.transform.SetParent(root.transform, false); g.transform.rotation = Quaternion.LookRotation(dir.normalized);
-            var l = g.AddComponent<Light>(); l.type = LightType.Directional; l.color = col; l.intensity = intensity; l.shadows = LightShadows.None; l.cullingMask = 1 << Layer;
+            var l = g.AddComponent<Light>(); l.type = LightType.Directional; l.color = col; l.intensity = intensity; l.shadows = LightShadows.None; l.cullingMask = (1 << Layer) | (1 << TrayLayer);
+            if (name == "Key") { keyLight = l; l.shadows = LightShadows.Soft; l.shadowStrength = 1; l.shadowBias = .04f; l.shadowNormalBias = .3f; RenderSettings.sun = l; }
+        }
+
+        // ------------------------------------------------------------------ 3D-Tischszene (Kniffel): Perspektive, echte Schatten
+        const int TrayLayer = 30;
+        static Camera trayCam; static RenderTexture trayRt; static Transform[] trayDice; static MeshRenderer[] trayRends; static Material catcherMat; static int trayUsedFrame = -1;
+        static void SetupTray(GameObject root, Camera main)
+        {
+            main.cullingMask &= ~(1 << TrayLayer);
+            main.GetUniversalAdditionalCameraData().renderShadows = false;
+            if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset ua) { ua.shadowDistance = 24; ua.shadowDepthBias = .6f; ua.shadowNormalBias = .4f; }
+            var cg = new GameObject("Tray Camera"); cg.transform.SetParent(root.transform, false);
+            trayCam = cg.AddComponent<Camera>();
+            trayCam.clearFlags = CameraClearFlags.SolidColor; trayCam.backgroundColor = new Color(0, 0, 0, 0); trayCam.cullingMask = 1 << TrayLayer;
+            trayCam.allowHDR = false; trayCam.allowMSAA = true; trayCam.depth = main.depth - 2; trayCam.nearClipPlane = 1; trayCam.farClipPlane = 60; trayCam.useOcclusionCulling = false;
+            var td = trayCam.GetUniversalAdditionalCameraData(); td.renderPostProcessing = false; td.antialiasing = AntialiasingMode.None; td.renderShadows = true;
+            trayCam.enabled = false;
+            trayDice = new Transform[5]; trayRends = new MeshRenderer[5];
+            for (int i = 0; i < 5; i++)
+            {
+                var g = new GameObject("Tray Die " + i) { layer = TrayLayer }; g.transform.SetParent(root.transform, false); g.transform.localScale = Vector3.one * .5f;
+                g.AddComponent<MeshFilter>().sharedMesh = mesh;
+                var r = g.AddComponent<MeshRenderer>(); r.sharedMaterial = baseMat; r.shadowCastingMode = ShadowCastingMode.On; r.receiveShadows = true;
+                r.reflectionProbeUsage = ReflectionProbeUsage.BlendProbes; r.lightProbeUsage = LightProbeUsage.Off;
+                trayDice[i] = g.transform; trayRends[i] = r; g.SetActive(false);
+            }
+            var cs = Resources.Load<Shader>("Glamour/Shaders/GlamourShadowCatcher");
+            if (cs != null)
+            {
+                catcherMat = new Material(cs) { name = "ShadowCatcher" };
+                var fl = GameObject.CreatePrimitive(PrimitiveType.Quad); fl.name = "Tray Floor"; fl.layer = TrayLayer; fl.transform.SetParent(root.transform, false);
+                UnityEngine.Object.Destroy(fl.GetComponent<Collider>());
+                fl.transform.rotation = Quaternion.Euler(90, 0, 0); fl.transform.localScale = new Vector3(40, 40, 1);
+                var fr = fl.GetComponent<MeshRenderer>(); fr.sharedMaterial = catcherMat; fr.shadowCastingMode = ShadowCastingMode.Off; fr.receiveShadows = true;
+            }
+        }
+
+        static readonly Vector4[] blobs = new Vector4[8];
+        static bool RenderTray(Canvas2D c, Box view, Pt center, float units, Die3D.TrayDie[] ds)
+        {
+            if (trayCam == null || catcherMat == null) return false;
+            // Render-Textur in Bildschirmaufloesung (scharf bei jeder Fenstergroesse)
+            float k = Mathf.Clamp(Screen.height / 900f, 1f, 2.5f);
+            int w = Mathf.Max(64, Mathf.RoundToInt(view.Width * k)), h = Mathf.Max(64, Mathf.RoundToInt(view.Height * k));
+            if (trayRt == null || trayRt.width != w || trayRt.height != h || !trayRt.IsCreated())
+            {
+                if (trayRt != null) { trayCam.targetTexture = null; trayRt.Release(); UnityEngine.Object.Destroy(trayRt); }
+                trayRt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { name = "GlamourTrayRT", antiAliasing = 8 };
+                trayRt.Create(); trayCam.targetTexture = trayRt; shapeMat.SetTexture("_TrayTex", trayRt);
+            }
+            // Tele-Perspektive (wenig Verzerrung, filmischer Blick schraeg von oben); Bildmitte = Mitte von 'view'
+            const float pitch = 29f, dist = 11f;
+            var rotC = Quaternion.Euler(pitch, 0, 0); var fwd = rotC * Vector3.forward; var up = rotC * Vector3.up;
+            float halfH = view.Height / 2 / units;
+            float offY = (center.Y - view.MidY) / units, offX = (view.MidX - center.X) / units;
+            var look = new Vector3(offX, .5f, 0) + up * offY;
+            trayCam.transform.SetPositionAndRotation(look - fwd * dist, rotC);
+            trayCam.fieldOfView = 2 * Mathf.Atan(halfH / dist) * Mathf.Rad2Deg; trayCam.aspect = view.Width / view.Height;
+            int n = Math.Min(ds.Length, trayDice.Length);
+            for (int i = 0; i < trayDice.Length; i++)
+            {
+                bool on = i < n; if (trayDice[i].gameObject.activeSelf != on) trayDice[i].gameObject.SetActive(on);
+                if (!on) continue;
+                var d = ds[i]; var p = new Vector3(d.Pos.X, d.Pos.Y, d.Pos.Z); var q = new Quaternion(d.Rot.X, d.Rot.Y, d.Rot.Z, d.Rot.W);
+                trayDice[i].SetPositionAndRotation(p, q); trayRends[i].sharedMaterial = MaterialFor(d.Body, d.Pip);
+                blobs[i] = new Vector4(p.x, p.y, p.z, .62f);
+            }
+            catcherMat.SetVectorArray("_Blobs", blobs); catcherMat.SetFloat("_BlobCount", n);
+            trayCam.enabled = true; trayUsedFrame = Time.frameCount;
+            c.DrawTray(view, Gfx.Fill(Col.White));
+            return true;
         }
 
         static Vector3 TileCenter(int i) => new Vector3(-Cols * TileW / 2 + TileW * (i % Cols + .5f), Rows * TileW / 2 - TileW * (i / Cols + .5f), 0);
@@ -87,7 +162,298 @@ namespace GlamourGames
         {
             for (int i = used; i < dice.Length; i++) if (dice[i].gameObject.activeSelf) dice[i].gameObject.SetActive(false);
             if (cam != null) cam.enabled = used > 0;
+            if (trayCam != null && trayUsedFrame != Time.frameCount) { trayCam.enabled = false; foreach (var t in trayDice) if (t.gameObject.activeSelf) t.gameObject.SetActive(false); }
             if (rt != null && !rt.IsCreated()) { rt.Create(); shapeMat.SetTexture("_DiceTex", rt); }
+        }
+
+        /// <summary>Belegt eine Kachel, setzt Mesh/Materialien/Drehung und blendet sie im Canvas ein (unitsPerWorld = Designeinheiten je Welteinheit).</summary>
+        static bool Place(Canvas2D c, float cx, float cy, float unitsPerWorld, Mesh m, Material[] ms, Quaternion rot)
+        {
+            if (used >= dice.Length || cam == null) return false;
+            int i = used++;
+            var t = dice[i]; if (!t.gameObject.activeSelf) t.gameObject.SetActive(true);
+            t.GetComponent<MeshFilter>().sharedMesh = m; rends[i].sharedMaterials = ms; t.rotation = rot;
+            float u0 = (i % Cols) / (float)Cols, v0 = 1 - (i / Cols) / (float)Rows, span = TileW * unitsPerWorld;
+            c.DrawDice(Gfx.Ctr(cx, cy, span, span), new Vector4(u0, v0, u0 + 1f / Cols, v0 - 1f / Rows), Gfx.Fill(Col.White));
+            return true;
+        }
+
+        // ------------------------------------------------------------------ Kriegsschiffe (prozedural)
+        static readonly Dictionary<int, Mesh> shipMeshes = new Dictionary<int, Mesh>();
+        static Material[] shipMats, shipMatsBurnt;
+        static bool RenderShip(Canvas2D c, float cx, float cy, float cell, int len, bool vertical, bool damaged)
+        {
+            if (!shipMeshes.TryGetValue(len, out var m)) shipMeshes[len] = m = BuildShip(len);
+            if (shipMats == null)
+            {
+                Material Mk(Color col, float metal, float smooth, Texture tex = null)
+                {
+                    var mt = new Material(baseMat) { name = "Ship" }; mt.SetColor("_BaseColor", col); mt.SetTexture("_BaseMap", tex != null ? tex : Texture2D.whiteTexture);
+                    mt.SetTexture("_BumpMap", FlatNormal()); mt.EnableKeyword("_NORMALMAP"); mt.SetFloat("_Metallic", metal); mt.SetFloat("_Smoothness", smooth); return mt;
+                }
+                var deck = DeckTexture();
+                shipMats = new[] { Mk(new Color(.46f, .5f, .56f), .35f, .5f), Mk(new Color(.45f, .1f, .08f), .2f, .45f), Mk(Color.white, 0, .3f, deck), Mk(new Color(.72f, .75f, .8f), .3f, .55f), Mk(new Color(.12f, .12f, .14f), .5f, .4f) };
+                shipMatsBurnt = new[] { Mk(new Color(.16f, .13f, .12f), .2f, .25f), Mk(new Color(.2f, .05f, .03f), .1f, .2f), Mk(new Color(.25f, .2f, .17f), 0, .15f, deck), Mk(new Color(.22f, .18f, .16f), .2f, .25f), Mk(new Color(.05f, .04f, .04f), .3f, .2f) };
+            }
+            var rot = Quaternion.Euler(-14, 0, 0) * Quaternion.Euler(0, 0, vertical ? -90 : 0) * Quaternion.Euler(-90, 0, 0);
+            return Place(c, cx, cy, cell, m, damaged ? shipMatsBurnt : shipMats, rot);
+        }
+
+        static Texture2D DeckTexture()
+        {
+            const int W = 256, H = 64; var px = new Color32[W * H]; var rng = new System.Random(3);
+            var plank = new float[H / 4]; for (int i = 0; i < plank.Length; i++) plank[i] = .85f + (float)rng.NextDouble() * .25f;
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    int row = y / 4; float seam = (y % 4 == 0) || ((x + row * 37) % 64 == 0) ? .55f : 1f;
+                    float g = plank[row] * seam * (1 + ((float)rng.NextDouble() - .5f) * .08f);
+                    var col = new Color(.55f * g, .42f * g, .3f * g, 1); px[y * W + x] = col;
+                }
+            var t = new Texture2D(W, H, TextureFormat.RGBA32, true, false) { name = "Deck", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 8 };
+            t.SetPixels32(px); t.Apply(true, true); return t;
+        }
+
+        /// <summary>Schiff entlang x (Bug +x), y oben (Wasserlinie y = 0), Breite z. Submeshes: 0 Rumpf, 1 Unterwasserband, 2 Deck, 3 Aufbauten, 4 dunkle Teile.</summary>
+        static Mesh BuildShip(int len)
+        {
+            var pos = new List<Vector3>(); var uv = new List<Vector2>(); var sub = new[] { new List<int>(), new List<int>(), new List<int>(), new List<int>(), new List<int>() };
+            float L = len * .94f, B = len >= 4 ? .25f : len == 3 ? .22f : .19f, deckY = .13f, x0 = -L / 2, x1 = L / 2;
+            float Beam(float x)
+            {
+                float u = (x - x0) / L; // 0 Heck .. 1 Bug
+                if (u > .62f) { float k = (u - .62f) / .38f; return B * Mathf.Sqrt(Mathf.Max(0, 1 - k * k * k)); }
+                if (u < .08f) { float k = (.08f - u) / .08f; return B * Mathf.Sqrt(Mathf.Max(0, 1 - k * k)) * .9f + B * .1f; }
+                return B;
+            }
+            void Quad(int s, Vector3 a, Vector3 b, Vector3 c2, Vector3 d, Vector3 outward, Vector2 ua = default, Vector2 ub = default, Vector2 uc = default, Vector2 ud = default)
+            {
+                int i = pos.Count; pos.Add(a); pos.Add(b); pos.Add(c2); pos.Add(d); uv.Add(ua); uv.Add(ub); uv.Add(uc); uv.Add(ud);
+                if (Vector3.Dot(Vector3.Cross(b - a, c2 - a), outward) < 0) { sub[s].Add(i); sub[s].Add(i + 2); sub[s].Add(i + 1); sub[s].Add(i); sub[s].Add(i + 3); sub[s].Add(i + 2); }
+                else { sub[s].Add(i); sub[s].Add(i + 1); sub[s].Add(i + 2); sub[s].Add(i); sub[s].Add(i + 2); sub[s].Add(i + 3); }
+            }
+            const int N = 40;
+            for (int k = 0; k < N; k++)
+            {
+                float xa = Mathf.Lerp(x0, x1, k / (float)N), xb = Mathf.Lerp(x0, x1, (k + 1) / (float)N), ba = Beam(xa), bb = Beam(xb);
+                for (int sd = -1; sd <= 1; sd += 2)
+                {
+                    var o = new Vector3(0, 0, sd);
+                    // Bordwand: Deck -> Wasserlinie (leicht eingezogen), dann rotes Band bis unter Wasser
+                    Quad(0, new Vector3(xa, deckY, ba * sd), new Vector3(xb, deckY, bb * sd), new Vector3(xb, .025f, bb * .96f * sd), new Vector3(xa, .025f, ba * .96f * sd), o);
+                    Quad(1, new Vector3(xa, .025f, ba * .96f * sd), new Vector3(xb, .025f, bb * .96f * sd), new Vector3(xb, -.06f, bb * .85f * sd), new Vector3(xa, -.06f, ba * .85f * sd), o);
+                }
+                // Deck (Planken laufen laengs)
+                Quad(2, new Vector3(xa, deckY, -ba), new Vector3(xb, deckY, -bb), new Vector3(xb, deckY, bb), new Vector3(xa, deckY, ba), Vector3.up,
+                    new Vector2(xa * 1.6f, 0), new Vector2(xb * 1.6f, 0), new Vector2(xb * 1.6f, 1), new Vector2(xa * 1.6f, 1));
+            }
+            // Heckspiegel
+            Quad(0, new Vector3(x0, deckY, -Beam(x0)), new Vector3(x0, deckY, Beam(x0)), new Vector3(x0, -.06f, Beam(x0) * .85f), new Vector3(x0, -.06f, -Beam(x0) * .85f), Vector3.left);
+            void AddBox(int s, Vector3 c0, Vector3 size)
+            {
+                var h = size / 2; var p = new Vector3[8]; for (int i = 0; i < 8; i++) p[i] = c0 + new Vector3((i & 1) == 0 ? -h.x : h.x, (i & 2) == 0 ? -h.y : h.y, (i & 4) == 0 ? -h.z : h.z);
+                Quad(s, p[2], p[3], p[7], p[6], Vector3.up); Quad(s, p[1], p[3], p[7], p[5], Vector3.right); Quad(s, p[0], p[2], p[6], p[4], Vector3.left);
+                Quad(s, p[4], p[5], p[7], p[6], Vector3.forward); Quad(s, p[0], p[1], p[3], p[2], Vector3.back);
+            }
+            void Cyl(int s, Vector3 c0, float r, float h, int seg = 20)
+            {
+                for (int k = 0; k < seg; k++)
+                {
+                    float a0 = k * Mathf.PI * 2 / seg, a1 = (k + 1) * Mathf.PI * 2 / seg; var d0 = new Vector3(Mathf.Cos(a0), 0, Mathf.Sin(a0)); var d1 = new Vector3(Mathf.Cos(a1), 0, Mathf.Sin(a1));
+                    Quad(s, c0 + d0 * r, c0 + d1 * r, c0 + d1 * r + Vector3.up * h, c0 + d0 * r + Vector3.up * h, (d0 + d1).normalized);
+                    int i = pos.Count; pos.Add(c0 + Vector3.up * h); pos.Add(c0 + d0 * r + Vector3.up * h); pos.Add(c0 + d1 * r + Vector3.up * h); uv.Add(default); uv.Add(default); uv.Add(default);
+                    if (Vector3.Dot(Vector3.Cross(pos[i + 1] - pos[i], pos[i + 2] - pos[i]), Vector3.up) < 0) { sub[s].Add(i); sub[s].Add(i + 2); sub[s].Add(i + 1); } else { sub[s].Add(i); sub[s].Add(i + 1); sub[s].Add(i + 2); }
+                }
+            }
+            void Turret(float x, bool fwd)
+            {
+                Cyl(3, new Vector3(x, deckY, 0), B * .55f, .07f); AddBox(3, new Vector3(x, deckY + .1f, 0), new Vector3(B * .9f, .06f, B * .8f));
+                float dir = fwd ? 1 : -1;
+                for (int k = -1; k <= 1; k += 2) AddBox(4, new Vector3(x + dir * B * .95f, deckY + .1f, k * B * .18f), new Vector3(B * 1.3f, .028f, .028f));
+            }
+            // Aufbauten je nach Schiffsklasse
+            float bridgeX = len >= 4 ? L * .08f : L * .1f;
+            AddBox(3, new Vector3(bridgeX, deckY + .09f, 0), new Vector3(B * 1.3f, .18f, B * 1.1f));
+            AddBox(3, new Vector3(bridgeX + B * .1f, deckY + .22f, 0), new Vector3(B * .8f, .1f, B * .8f));
+            AddBox(4, new Vector3(bridgeX + B * .48f, deckY + .22f, 0), new Vector3(.01f, .03f, B * .7f)); // Bruecken-Fenster
+            Cyl(4, new Vector3(bridgeX - B * .1f, deckY + .27f, 0), .012f, .28f, 8); // Mast
+            AddBox(4, new Vector3(bridgeX - B * .1f, deckY + .47f, 0), new Vector3(.02f, .015f, B * .9f)); // Rah
+            int funnels = len >= 4 ? 2 : 1;
+            for (int k = 0; k < funnels; k++) { float fx = bridgeX - B * (1.3f + k * 1.1f); Cyl(3, new Vector3(fx, deckY, 0), B * .32f, .24f, 16); Cyl(4, new Vector3(fx, deckY + .24f, 0), B * .3f, .04f, 16); }
+            Turret(L * .32f, true);
+            if (len >= 4) Turret(L * .2f + B * .1f, true);
+            if (len >= 3) Turret(-L * .34f, false);
+            if (len >= 4) AddBox(3, new Vector3(-L * .2f, deckY + .04f, 0), new Vector3(B * 1.2f, .08f, B * .9f));
+            // Relingsstuetzen entlang der Bordkante (feine Details)
+            for (float x = x0 + .1f; x < x1 - .25f; x += .12f) for (int sd = -1; sd <= 1; sd += 2) AddBox(4, new Vector3(x, deckY + .02f, Beam(x) * .97f * sd), new Vector3(.008f, .04f, .008f));
+            var m = new Mesh { name = "Ship" + len, indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            m.SetVertices(pos); m.SetUVs(0, uv); m.subMeshCount = 5; for (int s = 0; s < 5; s++) m.SetTriangles(sub[s], s);
+            m.RecalculateNormals(); m.RecalculateTangents(); m.RecalculateBounds();
+            return m;
+        }
+
+        // ------------------------------------------------------------------ Casino-Chips
+        const float ChipH = .085f;
+        static readonly Dictionary<int, Mesh> chipMeshes = new Dictionary<int, Mesh>();
+        static readonly Dictionary<(uint, uint), Material[]> chipMats = new Dictionary<(uint, uint), Material[]>();
+        static bool RenderChips(Canvas2D c, float x, float y, float r, int n, Col a, Col b)
+        {
+            n = Mathf.Clamp(n, 1, 10);
+            if (!chipMeshes.TryGetValue(n, out var m)) chipMeshes[n] = m = BuildChipStack(n);
+            var k = (Key(a), Key(b));
+            if (!chipMats.TryGetValue(k, out var ms)) { var fa = ChipMat(a, true); var sa = ChipMat(a, false); var fb = ChipMat(b, true); var sb2 = ChipMat(b, false); chipMats[k] = ms = new[] { fa, sa, fb, sb2 }; }
+            return Place(c, x, y, r, m, ms, Quaternion.Euler(-24, 0, 0) * Quaternion.Euler(0, n * 37f, 0));
+        }
+        static Material ChipMat(Col col, bool face)
+        {
+            var mt = new Material(baseMat) { name = "Chip " + (face ? "Face" : "Side") };
+            mt.SetTexture("_BaseMap", face ? ChipFaceTex(col) : ChipSideTex(col)); mt.SetColor("_BaseColor", Color.white);
+            mt.SetTexture("_BumpMap", FlatNormal()); mt.EnableKeyword("_NORMALMAP"); mt.SetFloat("_Metallic", 0f); mt.SetFloat("_Smoothness", .52f);
+            return mt;
+        }
+        static Color ToC(Col c) => new Color(c.Red / 255f, c.Green / 255f, c.Blue / 255f);
+        static Texture2D ChipFaceTex(Col col)
+        {
+            const int S = 256; var px = new Color32[S * S]; var bc = ToC(col); var wc = new Color(.96f, .95f, .92f); var rng = new System.Random(col.Red * 7 + col.Green * 13 + col.Blue);
+            for (int y = 0; y < S; y++)
+                for (int x = 0; x < S; x++)
+                {
+                    float u = (x + .5f) / S * 2 - 1, v = (y + .5f) / S * 2 - 1, rr = Mathf.Sqrt(u * u + v * v), ang = Mathf.Atan2(v, u) / (Mathf.PI * 2) + .5f;
+                    float grain = 1 + ((float)rng.NextDouble() - .5f) * .06f;
+                    Color c = bc * grain;
+                    bool spot = rr > .78f && Mathf.Repeat(ang * 8 + .5f, 1) < .28f;
+                    if (spot) c = wc * grain;
+                    if (Mathf.Abs(rr - .64f) < .018f) c = Color.Lerp(c, wc, .85f);
+                    if (rr < .55f) { c = Color.Lerp(bc, wc, .35f) * grain; if (Mathf.Abs(rr - .5f) < .012f) c = bc * .7f; }
+                    if (rr > .97f) c *= .8f;
+                    c.a = 1; px[y * S + x] = c;
+                }
+            var t = new Texture2D(S, S, TextureFormat.RGBA32, true, false) { name = "ChipFace", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Trilinear, anisoLevel = 8 };
+            t.SetPixels32(px); t.Apply(true, true); return t;
+        }
+        static Texture2D ChipSideTex(Col col)
+        {
+            const int W = 512, H = 8; var px = new Color32[W * H]; var bc = ToC(col); var wc = new Color(.96f, .95f, .92f);
+            for (int x = 0; x < W; x++) { float ang = (x + .5f) / W; bool spot = Mathf.Repeat(ang * 8 + .5f, 1) < .28f; var c = spot ? wc : bc; c.a = 1; for (int y = 0; y < H; y++) px[y * W + x] = c; }
+            var t = new Texture2D(W, H, TextureFormat.RGBA32, true, false) { name = "ChipSide", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 8 };
+            t.SetPixels32(px); t.Apply(true, true); return t;
+        }
+        static Mesh BuildChipStack(int n)
+        {
+            const int S = 72; var rng = new System.Random(n * 977);
+            var pos = new List<Vector3>(); var nor = new List<Vector3>(); var uv = new List<Vector2>(); var tan = new List<Vector4>();
+            var sub = new[] { new List<int>(), new List<int>(), new List<int>(), new List<int>() };
+            void Tri(int s, int a, int b2, int c2, Vector3 outward)
+            {
+                if (Vector3.Dot(Vector3.Cross(pos[b2] - pos[a], pos[c2] - pos[a]), outward) < 0) { var x = b2; b2 = c2; c2 = x; }
+                sub[s].Add(a); sub[s].Add(b2); sub[s].Add(c2);
+            }
+            for (int ci = 0; ci < n; ci++)
+            {
+                var off = new Vector3(((float)rng.NextDouble() - .5f) * .07f, ci * ChipH * 2.02f + ChipH, ((float)rng.NextDouble() - .5f) * .07f);
+                var yaw = Quaternion.Euler(0, (float)rng.NextDouble() * 360, 0); int fs = (ci % 2) * 2, ss = fs + 1;
+                for (int side = 0; side < 2; side++)
+                {
+                    float yy = side == 0 ? ChipH : -ChipH; var ny = new Vector3(0, side == 0 ? 1 : -1, 0); int c0 = pos.Count;
+                    pos.Add(off + new Vector3(0, yy, 0)); nor.Add(ny); uv.Add(new Vector2(.5f, .5f)); tan.Add(new Vector4(1, 0, 0, 1));
+                    for (int k = 0; k <= S; k++)
+                    {
+                        float a = k * Mathf.PI * 2 / S; var pl = yaw * new Vector3(Mathf.Cos(a), 0, Mathf.Sin(a));
+                        pos.Add(off + pl + new Vector3(0, yy, 0)); nor.Add(ny); uv.Add(new Vector2((Mathf.Cos(a) + 1) / 2, (Mathf.Sin(a) + 1) / 2)); tan.Add(new Vector4(1, 0, 0, 1));
+                    }
+                    for (int k = 0; k < S; k++) Tri(fs, c0, c0 + 1 + k, c0 + 2 + k, ny);
+                }
+                int rb = pos.Count;
+                for (int k = 0; k <= S; k++)
+                {
+                    float a = k * Mathf.PI * 2 / S; var dir = yaw * new Vector3(Mathf.Cos(a), 0, Mathf.Sin(a));
+                    for (int j = 0; j < 2; j++) { pos.Add(off + dir + new Vector3(0, j == 0 ? ChipH : -ChipH, 0)); nor.Add(dir); uv.Add(new Vector2(k / (float)S, j)); tan.Add(new Vector4(-dir.z, 0, dir.x, 1)); }
+                }
+                for (int k = 0; k < S; k++) { int q = rb + k * 2; Tri(ss, q, q + 2, q + 1, nor[q]); Tri(ss, q + 1, q + 2, q + 3, nor[q]); }
+            }
+            var m = new Mesh { name = "ChipStack" + n }; m.SetVertices(pos); m.SetNormals(nor); m.SetUVs(0, uv); m.SetTangents(tan);
+            m.subMeshCount = 4; for (int s = 0; s < 4; s++) m.SetTriangles(sub[s], s); m.RecalculateBounds(); return m;
+        }
+
+        static Mesh coinMesh; static Material[] coinMats;
+        static bool RenderCoin(Canvas2D c, float cx, float cy, float r, float angle)
+        {
+            if (coinMats == null)
+            {
+                Material Face(string img)
+                {
+                    var mt = new Material(baseMat) { name = "Coin " + img }; var im = GlamourGames.Assets.Img(img);
+                    mt.SetTexture("_BaseMap", GlamourGames.Assets.Texture); mt.SetColor("_BaseColor", new Color(1, .97f, .9f));
+                    if (im != null) { mt.SetTextureScale("_BaseMap", new Vector2(im.U1 - im.U0, im.V0 - im.V1)); mt.SetTextureOffset("_BaseMap", new Vector2(im.U0, im.V1)); }
+                    mt.SetTexture("_BumpMap", FlatNormal()); mt.EnableKeyword("_NORMALMAP"); mt.SetFloat("_Metallic", .6f); mt.SetFloat("_Smoothness", .74f);
+                    return mt;
+                }
+                var rim = new Material(baseMat) { name = "Coin Rim" };
+                rim.SetColor("_BaseColor", new Color(1f, .8f, .32f)); rim.SetTexture("_BaseMap", Texture2D.whiteTexture); rim.SetTexture("_BumpMap", RimNormal()); rim.EnableKeyword("_NORMALMAP");
+                rim.SetFloat("_Metallic", 1f); rim.SetFloat("_Smoothness", .8f);
+                coinMats = new[] { Face("coin_H"), Face("coin_T"), rim };
+            }
+            return Place(c, cx, cy, r, coinMesh, coinMats, Quaternion.AngleAxis(angle * Mathf.Rad2Deg, Vector3.right));
+        }
+
+        static Texture2D flatN;
+        static Texture2D FlatNormal()
+        {
+            if (flatN != null) return flatN;
+            flatN = new Texture2D(4, 4, TextureFormat.RGBA32, false, true) { name = "FlatNormal" }; var px = new Color[16]; for (int k = 0; k < 16; k++) px[k] = new Color(.5f, .5f, 1, 1); flatN.SetPixels(px); flatN.Apply(false, true); return flatN;
+        }
+        // Randriffelung der Muenze (Normal-Map entlang u)
+        static Texture2D RimNormal()
+        {
+            const int W = 512; var t = new Texture2D(W, 4, TextureFormat.RGBA32, true, true) { name = "CoinRimNormal", wrapMode = TextureWrapMode.Repeat }; var px = new Color[W * 4];
+            for (int x = 0; x < W; x++) { float s = Mathf.Sin(x / (float)W * Mathf.PI * 2 * 120) * .55f; var n = new Vector3(s, 0, 1).normalized; for (int y = 0; y < 4; y++) px[y * W + x] = new Color(n.x * .5f + .5f, .5f, n.z * .5f + .5f, 1); }
+            t.SetPixels(px); t.Apply(true, true); return t;
+        }
+
+        static Mesh BuildCoinMesh()
+        {
+            const int S = 128; const float th = .09f, b = .04f;
+            var pos = new List<Vector3>(); var nor = new List<Vector3>(); var uv = new List<Vector2>(); var tan = new List<Vector4>();
+            var sub = new[] { new List<int>(), new List<int>(), new List<int>() };
+            void Tri(int s, int a, int b2, int c2, Vector3 outward)
+            {
+                if (Vector3.Dot(Vector3.Cross(pos[b2] - pos[a], pos[c2] - pos[a]), outward) < 0) { var x = b2; b2 = c2; c2 = x; }
+                sub[s].Add(a); sub[s].Add(b2); sub[s].Add(c2);
+            }
+            for (int side = 0; side < 2; side++)
+            {
+                float z = side == 0 ? -th : th; var nz = new Vector3(0, 0, side == 0 ? -1 : 1); int c0 = pos.Count;
+                pos.Add(new Vector3(0, 0, z)); nor.Add(nz); uv.Add(new Vector2(.5f, .5f)); tan.Add(new Vector4(1, 0, 0, side == 0 ? -1 : 1));
+                for (int k = 0; k <= S; k++)
+                {
+                    float a = k * Mathf.PI * 2 / S, x = Mathf.Cos(a) * (1 - b), y = Mathf.Sin(a) * (1 - b);
+                    pos.Add(new Vector3(x, y, z)); nor.Add(nz); uv.Add(side == 0 ? new Vector2((x + 1) / 2, (y + 1) / 2) : new Vector2((x + 1) / 2, (1 - y) / 2)); tan.Add(new Vector4(1, 0, 0, side == 0 ? -1 : 1));
+                }
+                for (int k = 0; k < S; k++) Tri(side, c0, c0 + 1 + k, c0 + 2 + k, nz);
+            }
+            // Rand: Profil von vorne nach hinten mit Fasen
+            var prof = new List<(float r, float z, float nr, float nz)>();
+            for (int k = 0; k <= 4; k++) { float a = k / 4f * Mathf.PI / 2; prof.Add((1 - b + Mathf.Sin(a) * b, -th + b - Mathf.Cos(a) * b, Mathf.Sin(a), -Mathf.Cos(a))); }
+            for (int k = 0; k <= 4; k++) { float a = k / 4f * Mathf.PI / 2; prof.Add((1 - b + Mathf.Cos(a) * b, th - b + Mathf.Sin(a) * b, Mathf.Cos(a), Mathf.Sin(a))); }
+            int rb = pos.Count, P = prof.Count;
+            for (int k = 0; k <= S; k++)
+            {
+                float a = k * Mathf.PI * 2 / S, ca = Mathf.Cos(a), sa = Mathf.Sin(a);
+                for (int j = 0; j < P; j++)
+                {
+                    var (r, z, nr, nz) = prof[j];
+                    pos.Add(new Vector3(ca * r, sa * r, z)); nor.Add(new Vector3(ca * nr, sa * nr, nz).normalized); uv.Add(new Vector2(k / (float)S, j / (float)(P - 1)));
+                    tan.Add(new Vector4(-sa, ca, 0, 1));
+                }
+            }
+            for (int k = 0; k < S; k++)
+                for (int j = 0; j < P - 1; j++)
+                {
+                    int q = rb + k * P + j; var o = (nor[q] + nor[q + P + 1]).normalized;
+                    Tri(2, q, q + P, q + 1, o); Tri(2, q + 1, q + P, q + P + 1, o);
+                }
+            var m = new Mesh { name = "GlamourCoin" }; m.SetVertices(pos); m.SetNormals(nor); m.SetUVs(0, uv); m.SetTangents(tan);
+            m.subMeshCount = 3; for (int s = 0; s < 3; s++) m.SetTriangles(sub[s], s); m.RecalculateBounds(); return m;
         }
 
         static bool Render(Canvas2D c, float cx, float cy, float size, float[] m, Col body, Col pip)
@@ -95,13 +461,14 @@ namespace GlamourGames
             if (used >= dice.Length || cam == null) return false;
             int i = used++;
             var t = dice[i]; if (!t.gameObject.activeSelf) t.gameObject.SetActive(true);
+            t.GetComponent<MeshFilter>().sharedMesh = mesh;
             // m bildet Wuerfelraum (z zum Betrachter) auf Sichtraum ab; Unity: z vom Betrachter weg -> R = S*m*S mit S = diag(1,1,-1)
             var R = new Matrix4x4();
             R.m00 = m[0]; R.m01 = m[1]; R.m02 = -m[2];
             R.m10 = m[3]; R.m11 = m[4]; R.m12 = -m[5];
             R.m20 = -m[6]; R.m21 = -m[7]; R.m22 = m[8]; R.m33 = 1;
             t.rotation = Quaternion.LookRotation(R.GetColumn(2), R.GetColumn(1));
-            rends[i].sharedMaterial = MaterialFor(body, pip);
+            rends[i].sharedMaterials = new[] { MaterialFor(body, pip) };
             float u0 = (i % Cols) / (float)Cols, v0 = 1 - (i / Cols) / (float)Rows;
             c.DrawDice(Gfx.Ctr(cx, cy, size * 2, size * 2), new Vector4(u0, v0, u0 + 1f / Cols, v0 - 1f / Rows), Gfx.Fill(Col.White));
             return true;

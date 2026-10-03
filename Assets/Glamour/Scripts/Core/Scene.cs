@@ -175,9 +175,13 @@ namespace GlamourGames
             float rad = Round ? R.Height / 2 : Math.Min(16, R.Height / 2.2f);
             float pulse = Selected ? .5f + .5f * MathF.Sin(Pulse * 5) : 0;
             if (Enabled) Gfx.Glow(c, R, rad, col, 12 + Hov.V * 8, .35f + Hov.V * .35f + pulse * .3f);
-            Gfx.RectGrad(c, R, rad, col.Dark(.42f + Hov.V * .15f + pulse * .1f), col.Dark(.16f + Hov.V * .08f));
-            var hl = new Box(R.Left + 3, R.Top + 2, R.Right - 3, R.Top + R.Height * .5f);
-            Gfx.RectGrad(c, hl, rad - 2, Col.White.A(.16f), Col.White.A(0));
+            if (Round) Gfx.Ball(c, R.MidX, R.MidY, R.Height / 2, col.Dark(.8f + Hov.V * .15f + pulse * .05f), .95f, .3f - Hov.V * .08f);
+            else
+            {
+                Gfx.RectGrad(c, R, rad, col.Dark(.42f + Hov.V * .15f + pulse * .1f), col.Dark(.16f + Hov.V * .08f));
+                var hl = new Box(R.Left + 3, R.Top + 2, R.Right - 3, R.Top + R.Height * .5f);
+                Gfx.RectGrad(c, hl, rad - 2, Col.White.A(.16f), Col.White.A(0));
+            }
             var st = Gfx.Line(col.A(Enabled ? .7f + Hov.V * .3f + pulse * .3f : .5f), Selected ? 3.5f : 2); st.Glow = 1 + Hov.V * .5f; c.DrawRoundRect(R, rad, rad, st);
             if (Custom != null) Custom(c, R, Hov.V);
             else if (Sub == null) Gfx.Text(c, Text, R.MidX, R.MidY, Size, Enabled ? Col.White : C.Dim, Al.C, true, Enabled ? 3 * Hov.V : 0);

@@ -597,7 +597,7 @@ namespace GlamourGames
             Gfx.Text(c, "GLAMOUR HOLD'EM", 700, 610, 30, C.Magenta.A(.09f), Al.C, true, 0, true);
             Gfx.Text(c, msg, 700, 100, 22, C.Yellow.Light(.3f), Al.C, true, 6);
             int pot = Pot;
-            if (pot > 0) { Gfx.Light(c, 700, PotY, 150, C.Gold, .16f + .05f * MathF.Sin(Time * 3), 1.5f); float tw = Gfx.TW($"POT  {pot}", 34); for (int k = 0; k < Math.Min(6, 1 + pot / 150); k++) Chip(c, 700 - tw / 2 - 34, PotY + 12 - k * 5, k % 2 == 0 ? C.Gold : C.Magenta, k == 0); }
+            if (pot > 0) { Gfx.Light(c, 700, PotY, 150, C.Gold, .16f + .05f * MathF.Sin(Time * 3), 1.5f); float tw = Gfx.TW($"POT  {pot}", 34); Chip3D.Stack(c, 700 - tw / 2 - 34, PotY + 12, 22, Math.Min(8, 1 + pot / 150), C.Gold, C.Magenta); }
             Gfx.Text(c, $"POT  {pot}", 700, PotY, 34, C.Gold, Al.C, true, 10); Gfx.Text(c, $"Hand {handNo}  -  Blinds {sb}/{bb}", 700, PotY + 36, 18, C.Dim, Al.C, false);
             for (int k = 0; k < 5; k++)
             {
@@ -646,15 +646,9 @@ namespace GlamourGames
             if (p.Bet > 0)
             {
                 float bx = 700 + (s.X - 700) * .55f, by = i == 2 ? 330 : 500 - 10; if (i == 2) { bx = 700; by = 330; }
-                if (i == 2) by = 335; for (int k = 0; k < Math.Min(5, 1 + p.Bet / 100); k++) Chip(c, bx + (i == 2 ? 190 : 0), by - k * 5 + (i == 2 ? -50 : 0), col, k == 0);
+                if (i == 2) by = 335; Chip3D.Stack(c, bx + (i == 2 ? 190 : 0), by + (i == 2 ? -50 : 0), 22, Math.Min(6, 1 + p.Bet / 100), col, col);
                 Gfx.Text(c, p.Bet.ToString(), bx + (i == 2 ? 190 : 0), by + 22 + (i == 2 ? -50 : 0), 20, Col.White, Al.C, true, 4);
             }
-        }
-        static void Chip(Canvas2D c, float x, float y, Col col, bool shadow = true)
-        {
-            if (shadow) { var sh = Gfx.Fill(Col.Black.A(.5f)); sh.Blur = 4; c.DrawOval(x + 2, y + 7, 24, 9, sh); }
-            c.DrawOval(x, y + 3, 22, 9, Gfx.Fill(col.Dark(.4f))); c.DrawOval(x, y, 22, 9, Gfx.Fill(col));
-            var e = Gfx.Line(Col.White.A(.8f), 1.5f); e.Glow = 1.3f; c.DrawOval(x, y, 22, 9, e); c.DrawOval(x, y, 12, 5, Gfx.Line(Col.White.A(.6f), 1.2f));
         }
         void DrawLog(Canvas2D c)
         {

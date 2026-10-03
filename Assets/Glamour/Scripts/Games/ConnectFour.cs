@@ -141,7 +141,7 @@ namespace GlamourGames
             {
                 var col = cur == 1 ? C.Cyan : C.Pink; Gfx.Rect(c, Gfx.R(BX + hoverCol * CS + 4, BY, CS - 8, Rows * CS), 14, col.A(.10f));
                 Gfx.Light(c, CX(hoverCol), BY - CS * .55f, CS * .8f, col, .25f);
-                Gfx.Ball(c, CX(hoverCol), BY - CS * .55f + MathF.Sin(Time * 6) * 4, CS * .4f, col);
+                Gfx.Disc(c, CX(hoverCol), BY - CS * .55f + MathF.Sin(Time * 6) * 4, CS * .4f, col);
             }
             if (cpuCol >= 0 && CpuTurn && !busy) DrawCpuHover(c);
             foreach (var d in discs) DrawDisc(c, d);
@@ -172,7 +172,7 @@ namespace GlamourGames
             Gfx.Rect(c, Gfx.R(BX + cpuCol * CS + 4, BY, CS - 8, Rows * CS), 14, C.Pink.A(.10f * aim));
             c.SaveLayer(aim);
             Gfx.Light(c, x, y, CS * .8f, C.Pink, .3f);
-            Gfx.Ball(c, x, y, CS * .4f, C.Pink);
+            Gfx.Disc(c, x, y, CS * .4f, C.Pink);
             var ring = Gfx.Line(C.Pink.Light(.5f).A(.8f), 2); ring.Glow = 1.8f; c.DrawCircle(x, y, CS * .4f, ring);
             c.Restore();
         }
@@ -180,9 +180,8 @@ namespace GlamourGames
         {
             var col = d.P == 1 ? C.Cyan : C.Pink; float r = CS * .4f, x = CX(d.Col);
             Gfx.Light(c, x, d.Y, r * 1.8f, col, .3f, 1.4f);
-            Gfx.Ball(c, x, d.Y, r, col);
-            var inner = Gfx.Line(col.Light(.4f).A(.55f), 3); inner.Glow = 1.3f; c.DrawCircle(x, d.Y, r * .68f, inner);
-            c.DrawCircle(x, d.Y, r, Gfx.Line(col.Light(.5f), 2));
+            Gfx.Disc(c, x, d.Y, r, col);
+            c.DrawCircle(x, d.Y, r, Gfx.Line(col.Dark(.35f).A(.7f), 1.5f));
         }
     }
 

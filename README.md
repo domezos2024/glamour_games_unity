@@ -12,6 +12,20 @@ HDR-Neon-Grafik und einem Computer-Gegner in drei Stärken für **jedes** Spiel.
 
 </div>
 
+## Download
+
+**[Neueste Version herunterladen](https://github.com/domezos2024/glamour_games_unity/releases/latest)**: entweder `GlamourGames-<Version>-Setup.exe` (Installer mit Startmenü-/Desktop-Verknüpfung und Deinstallation) oder `GlamourGames-<Version>-win-x64.zip` (ohne Installation: entpacken, `GlamourGames.exe` starten).
+Voraussetzungen: Windows 10/11 (64 Bit), Grafikkarte mit DirectX 11/12.
+
+## Neu in 2.1 – Realismus-Update
+
+* **Kniffel:** echte 3D-Würfel (abgerundet, eingelassene Augen) mit **physikalischem Wurf** (Starrkörper-Simulation, Aufprall-Geräusche) und echten Schatten auf dem Filz.
+* **Physikalisch basierte Beleuchtung** (GGX, Fresnel, Studio-Spiegelungen) für Kugeln, Spielsteine, Goldbarren und Knöpfe.
+* **Schiffe Versenken:** detaillierte 3D-Kriegsschiffe (Brücke, Geschütztürme, Schornsteine, Holzdeck) auf animiertem Wasser mit Kaustik und Gischt.
+* **Casino:** 3D-Chipstapel, Filztische mit Lederbande, Karten mit Dicke, Papierstruktur und Glanz.
+* **Münzwurf:** 3D-Goldmünze mit Prägung und geriffeltem Rand; **Vier Gewinnt:** echte Spielsteine; **Slot:** zylindrische Walzen.
+* Schärfere Darstellung (kein Bloom auf Schrift, keine Farbsäume) und funktionierender Ton.
+
 ## Was ist neu gegenüber der Windows-Version?
 
 | | Windows 1.8.1 (SkiaSharp) | Unity Edition 2.0 |
@@ -84,6 +98,7 @@ Die Gegnerwahl erscheint beim Start jedes Spiels und lässt sich im Spiel jederz
 * `Tools/build_assets.py` – baut Schrift- und Bildatlas aus `SourceArt/`.
 * `Tools/Preview` – Software-Rasterizer, der Szenen **ohne Unity** als PNG rendert (Tests, Screenshots):
   `Tools/Preview/preview.sh --scene=menu --t=2 --out=menu.png`
+* `Tools/Installer/GlamourGames.iss` – Inno-Setup-Skript für den Windows-Installer.
 * `Tools/compile_check.sh` – Kompilier-Check gegen die Unity-Referenz-DLLs ohne Editor.
 
 Entwickler-Referenz: [docs/ENGINE.md](docs/ENGINE.md)

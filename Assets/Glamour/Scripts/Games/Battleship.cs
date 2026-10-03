@@ -190,11 +190,8 @@ namespace GlamourGames
         void Water(Canvas2D c, float gx, float gy, float s, bool labels)
         {
             var r = Gfx.R(gx - 8, gy - 8, N * s + 16, N * s + 16); Gfx.Shadow(c, r, 14, 16, .5f, 0, 12); Gfx.Glow(c, r, 14, C.Cyan, 16, .35f);
-            Gfx.RectGrad(c, r, 14, new Col(0, 60, 100), new Col(0, 12, 34)); c.Save(); c.ClipRoundRect(r, 14);
-            // wandernde Lichtflecken (Kaustik) und Wellenlinien
-            for (int k = 0; k < 4; k++) { float lx = gx + N * s * (.5f + .42f * MathF.Sin(Time * .23f + k * 1.7f)), ly = gy + N * s * (.5f + .42f * MathF.Cos(Time * .19f + k * 2.3f)); Gfx.Light(c, lx, ly, s * 2.6f, C.Cyan, .05f, 1.2f); }
-            for (int k = 0; k < 9; k++) { float y = gy + k * s * N / 8 - 8; using var wp = new Path2D(); wp.MoveTo(gx - 10, y); for (float x = gx - 10; x < gx + N * s + 10; x += 12) wp.LineTo(x, y + MathF.Sin(x * .03f + Time * 1.4f + k) * 4); var lp = Gfx.Line(C.Cyan.A(.07f), 2); lp.Glow = 1.3f; c.DrawPath(wp, lp); }
-            c.Restore(); var bp = Gfx.Line(C.Cyan.A(.8f), 2.5f); bp.Glow = 1.6f; c.DrawRoundRect(r, 14, 14, bp);
+            Gfx.Water(c, r, 14, Time);
+            var bp = Gfx.Line(C.Cyan.A(.8f), 2.5f); bp.Glow = 1.6f; c.DrawRoundRect(r, 14, 14, bp);
             var gl = Gfx.Line(C.Cyan.A(.22f), 1.5f); gl.Glow = 1.2f; for (int k = 0; k <= N; k++) { c.DrawLine(gx + k * s, gy, gx + k * s, gy + N * s, gl); c.DrawLine(gx, gy + k * s, gx + N * s, gy + k * s, gl); }
             if (labels) for (int k = 0; k < N; k++) { Gfx.Text(c, ((char)('A' + k)).ToString(), gx + k * s + s / 2, gy - 22, 20, C.Cyan.Light(.4f)); Gfx.Text(c, (k + 1).ToString(), gx - 24, gy + k * s + s / 2, 20, C.Cyan.Light(.4f)); }
         }
@@ -202,6 +199,24 @@ namespace GlamourGames
         static void Hull(Canvas2D c, float x, float y, int len, float s, bool horiz, float alpha, float red, float t)
         {
             float L = len * s, W = s;
+            if (Ship3D.Render3D != null)
+            {
+                float cx = horiz ? x + L / 2 : x + s / 2, cy = horiz ? y + s / 2 : y + L / 2;
+                c.Save(); c.Translate(cx, cy); if (!horiz) c.RotateDegrees(90);
+                // Schatten im Wasser, Gischtsaum am Rumpf und Bugwelle
+                var ws = Gfx.Fill(Col.Black.A(.35f * alpha)); ws.Blur = W * .18f; c.DrawOval(W * .08f, W * .12f, L * .48f, W * .3f, ws);
+                var foam = Gfx.Line(Col.White.A((.16f + .06f * MathF.Sin(t * 2.3f + len)) * alpha), W * .07f); foam.Blur = W * .05f; c.DrawOval(0, 0, L * .49f, W * .31f, foam);
+                for (int k = 0; k < 2; k++) { float o = (t * .35f + k * .5f) % 1f; c.DrawArc(Gfx.Ctr(L * .44f - o * W * .4f, 0, W * (.5f + o * .6f), W * (.7f + o * .8f)), -60, 120, false, Gfx.Line(Col.White.A((1 - o) * .2f * alpha), W * .04f)); }
+                c.Restore();
+                c.SaveLayer(alpha);
+                bool drawn = Ship3D.Render3D(c, cx, cy, s, len, !horiz, red > .5f);
+                c.Restore();
+                if (drawn)
+                {
+                    if (red < .5f) Gfx.Light(c, horiz ? cx + L * .47f : cx, horiz ? cy : cy + L * .47f, W * .2f, C.Cyan, .4f * alpha * (.7f + .3f * MathF.Sin(t * 3 + len)), 1.8f);
+                    return;
+                }
+            }
             c.Save(); if (horiz) c.Translate(x, y); else { c.Translate(x + s, y); c.RotateDegrees(90); }
             var sh = Gfx.Fill(Col.Black.A(.4f * alpha)); sh.Blur = 5; c.DrawRoundRect(Gfx.R(4, W * .3f, L - 6, W * .6f), 8, 8, sh);
             using var hp = new Path2D(); hp.MoveTo(W * .1f, W * .18f); hp.LineTo(L - W * .55f, W * .12f); hp.CubicTo(L - W * .1f, W * .2f, L - W * .05f, W * .4f, L - W * .03f, W * .5f);
