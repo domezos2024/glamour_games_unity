@@ -87,6 +87,7 @@ namespace GlamourGames
             canvasGo = MakeRenderer("Canvas2D", shapeMat, 0, out mesh);
             mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
+            if (FindAnyObjectByType<AudioListener>() == null) cam.gameObject.AddComponent<AudioListener>();
             Sfx.Init(gameObject);
             handCursor = MakeHandCursor();
 

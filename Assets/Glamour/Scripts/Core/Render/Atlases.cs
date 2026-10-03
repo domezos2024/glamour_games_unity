@@ -37,10 +37,10 @@ namespace GlamourGames
                     glyphs[fi][cp] = new G { Adv = float.Parse(f[3], ci), X = float.Parse(f[4], ci), Y = float.Parse(f[5], ci), W = float.Parse(f[6], ci), H = float.Parse(f[7], ci), Bx = float.Parse(f[8], ci), By = float.Parse(f[9], ci) };
                 }
             }
-            Texture = new Texture2D(2, 2, TextureFormat.RGBA32, true, true) { name = "GlamourFontAtlas" };
+            Texture = new Texture2D(2, 2, TextureFormat.RGBA32, false, true) { name = "GlamourFontAtlas" };
             Texture.LoadImage(png.bytes, false);
-            Texture.filterMode = FilterMode.Trilinear; Texture.wrapMode = TextureWrapMode.Clamp; Texture.anisoLevel = 2;
-            Texture.Apply(true, true);
+            Texture.filterMode = FilterMode.Bilinear; Texture.wrapMode = TextureWrapMode.Clamp; Texture.anisoLevel = 0;
+            Texture.Apply(false, true);
             Loaded = true;
         }
 

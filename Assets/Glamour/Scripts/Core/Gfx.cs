@@ -84,10 +84,10 @@ namespace GlamourGames
             float x0 = al == Al.C ? x - w / 2 : al == Al.R ? x - w : x;
             if (glow > 0)
             {
-                var g = Fill(col.A(.7f * col.Alpha / 255f)); g.Blur = glow; g.Glow = 1.5f;
+                var g = Fill(col.A(.45f * col.Alpha / 255f)); g.Blur = glow; g.Glow = 1.5f;
                 FontAtlas.Draw(c, s, x0, by, sz, fi, g);
             }
-            var p = Fill(col); if (glow > 0) p.Glow = 1.12f;
+            var p = Fill(col);
             FontAtlas.Draw(c, s, x0, by, sz, fi, p);
         }
         /// <summary>Text mit beliebiger Paint (z.B. mit Farbverlauf-Shader).</summary>
@@ -107,7 +107,7 @@ namespace GlamourGames
             c.SaveLayer(alpha);
             var g = Fill(col.A(.85f)); g.Blur = 34; g.Glow = 2.2f; TextPaint(c, s, 0, 0, size, g, Al.C, true, true);
             Text(c, s, 0, 0, size, col, Al.C, true, 14, true);
-            var p = Fill(col.Light(.6f)); p.Glow = 1.25f; TextPaint(c, s, 0, 0, size, p, Al.C, true, true);
+            var p = Fill(col.Light(.6f)); TextPaint(c, s, 0, 0, size, p, Al.C, true, true);
             c.Restore();
         }
         public static void TextShadow(Canvas2D c, string s, float x, float y, float size, Col col, Al al = Al.C, bool serif = false)

@@ -5,9 +5,9 @@ using UnityEngine.Rendering.Universal;
 namespace GlamourGames
 {
     /// <summary>
-    /// URP-Postprocessing fuer den Neon-Look: HDR-Bloom (macht alle Leuchtwerte &gt; 1 zu echtem Glow),
-    /// dezente Vignette, leichte chromatische Aberration und feines Filmkorn. Wird zur Laufzeit erzeugt,
-    /// es sind keine Volume-Assets noetig.
+    /// URP-Postprocessing fuer den Neon-Look: HDR-Bloom nur fuer Leuchtwerte deutlich &gt; 1 (normale Schrift und
+    /// Flaechen bleiben scharf) und dezente Vignette. Keine chromatische Aberration und kein Filmkorn, da beides
+    /// Kanten und Schrift unscharf wirken laesst. Wird zur Laufzeit erzeugt, es sind keine Volume-Assets noetig.
     /// </summary>
     public static class PostFX
     {
@@ -37,9 +37,9 @@ namespace GlamourGames
             profile.name = "GlamourNeon";
 
             var bloom = profile.Add<Bloom>(true);
-            bloom.threshold.Override(0.92f);
-            bloom.intensity.Override(1.15f);
-            bloom.scatter.Override(0.72f);
+            bloom.threshold.Override(1.15f);
+            bloom.intensity.Override(1.35f);
+            bloom.scatter.Override(0.62f);
             bloom.clamp.Override(40f);
             bloom.highQualityFiltering.Override(true);
             bloom.maxIterations.Override(8);
@@ -50,13 +50,6 @@ namespace GlamourGames
             var vig = profile.Add<Vignette>(true);
             vig.intensity.Override(0.22f);
             vig.smoothness.Override(0.45f);
-
-            var ca = profile.Add<ChromaticAberration>(true);
-            ca.intensity.Override(0.06f);
-
-            var grain = profile.Add<FilmGrain>(true);
-            grain.type.Override(FilmGrainLookup.Thin1);
-            grain.intensity.Override(0.12f);
 
             Volume.sharedProfile = profile;
         }
