@@ -175,7 +175,7 @@ namespace GlamourGames
             float rad = Round ? R.Height / 2 : Math.Min(16, R.Height / 2.2f);
             float pulse = Selected ? .5f + .5f * MathF.Sin(Pulse * 5) : 0;
             if (Enabled) Gfx.Glow(c, R, rad, col, 12 + Hov.V * 8, .35f + Hov.V * .35f + pulse * .3f);
-            if (Round) Gfx.Ball(c, R.MidX, R.MidY, R.Height / 2, col.Dark(.5f + Hov.V * .2f + pulse * .1f), .9f, .32f - Hov.V * .08f);
+            if (Round) Gfx.Ball(c, R.MidX, R.MidY, R.Height / 2, col.Dark(.8f + Hov.V * .15f + pulse * .05f), .95f, .3f - Hov.V * .08f);
             else
             {
                 Gfx.RectGrad(c, R, rad, col.Dark(.42f + Hov.V * .15f + pulse * .1f), col.Dark(.16f + Hov.V * .08f));

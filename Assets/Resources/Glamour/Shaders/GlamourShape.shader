@@ -267,14 +267,14 @@ Shader "Glamour/Shape"
                     g += float2(vnoise(q * 6.0 + float2(e, 0) + t * 0.35) - n0, vnoise(q * 6.0 + float2(0, e) + t * 0.35) - n0) / e * 0.025;
                     float3 n = normalize(float3(-g.x, -g.y, 1.0));
                     float depth = saturate(0.5 + p.y / max(hs.y * 2.0, 1.0));
-                    float3 deep = lerp(float3(0.0, 0.10, 0.16), float3(0.0, 0.03, 0.08), depth);
-                    float c1 = vnoise(q * 9.0 + n.xy * 3.0 + t * 0.4), c2 = vnoise(q * 9.7 - n.xy * 3.0 - t * 0.33);
-                    float caus = pow(saturate(1.0 - abs(c1 - c2) * 3.0), 6.0);
-                    rgb = deep + float3(0.05, 0.32, 0.36) * caus * 0.45;
+                    float3 deep = lerp(float3(0.0, 0.17, 0.30), float3(0.0, 0.05, 0.14), depth);
+                    float c1 = vnoise(q * 1.7 + n.xy * 1.5 + t * 0.25), c2 = vnoise(q * 1.9 - n.xy * 1.5 - t * 0.21);
+                    float caus = pow(saturate(1.0 - abs(c1 - c2) * 2.2), 5.0);
+                    rgb = deep + float3(0.08, 0.45, 0.5) * caus * 0.35;
                     rgb += lightGGX(n, normalize(float3(-0.45, -0.62, 0.65)), float3(1.0, 0.97, 0.92) * 1.4, 0, float3(0.02, 0.02, 0.02), 0, 0.12);
                     float3 R = float3(0, 0, -1) + 2.0 * n.z * n;
                     float fr = 0.02 + 0.98 * pow(1.0 - n.z, 5.0);
-                    rgb += envStudio(R) * (fr + 0.04) * 0.6;
+                    rgb += envStudio(R) * fr * 0.5;
                     cov = cover(sdRoundBox(p, hs, rad), 0.0, sigma);
                 }
                 else if (type == 12) // Struktur-Overlay: Filz (t3.x=1) oder Papier (t3.x=2), Staerke t3.y, Randabdunklung t3.z
