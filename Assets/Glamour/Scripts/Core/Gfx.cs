@@ -84,7 +84,7 @@ namespace GlamourGames
             float x0 = al == Al.C ? x - w / 2 : al == Al.R ? x - w : x;
             if (glow > 0)
             {
-                var g = Fill(col.A(.9f * col.Alpha / 255f)); g.Blur = glow; g.Glow = 1.7f;
+                var g = Fill(col.A(.7f * col.Alpha / 255f)); g.Blur = glow; g.Glow = 1.5f;
                 FontAtlas.Draw(c, s, x0, by, sz, fi, g);
             }
             var p = Fill(col); if (glow > 0) p.Glow = 1.12f;

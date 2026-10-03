@@ -187,8 +187,8 @@ Shader "Glamour/Shape"
                     float v = lerp(tx.r, tx.a, _FontAlpha);
                     float spreadObj = i.t3.x;
                     float d = (0.5 - v) * 2.0 * spreadObj;  // Objekt-Einheiten, aussen positiv
-                    float s = max(min(blur, spreadObj / 2.6), 0.5 * px);
-                    cov = cover(d, sw, s);
+                    float s = max(min(blur, spreadObj / 3.0), 0.5 * px);
+                    cov = cover(d, sw, s) * saturate((spreadObj - d) / (0.3 * spreadObj));
                 }
                 else if (type == 7) // Polylinien-Streifen
                 {
@@ -220,6 +220,14 @@ Shader "Glamour/Shape"
                         d = min(length(p - r * float2(cos(a0), sin(a0))), length(p - r * float2(cos(a1), sin(a1))));
                     }
                     cov = cover(d - sw * 0.5, 0.0, sigma);
+                }
+
+                // Weichgezeichnete Formen am Quad-Rand sauber auf 0 auslaufen lassen (keine sichtbaren Kanten)
+                if (blur > 0.0 && (type == 1 || type == 2 || type == 7 || type == 8))
+                {
+                    float2 ext = (type == 7 ? float2(1e5, hs.y) : hs) + 3.0 * blur + sw * 0.5;
+                    float2 wnd = saturate((ext - abs(p)) / blur);
+                    cov *= wnd.x * wnd.y;
                 }
 
                 // Clip-Rechteck im Designraum (mit Radius)
