@@ -97,6 +97,58 @@ Shader "Glamour/Shape"
                 return k1 > 1e-5 ? k0 * (k0 - 1.0) / k1 : -min(ab.x, ab.y);
             }
 
+            // ---------------- Physikalisch basierte Beleuchtung (Designraum: x rechts, y unten, z zum Betrachter)
+            float hash21(float2 q) { q = frac(q * float2(123.34, 456.21)); q += dot(q, q + 45.32); return frac(q.x * q.y); }
+            float vnoise(float2 q)
+            {
+                float2 i0 = floor(q), f = frac(q); f = f * f * (3.0 - 2.0 * f);
+                return lerp(lerp(hash21(i0), hash21(i0 + float2(1, 0)), f.x), lerp(hash21(i0 + float2(0, 1)), hash21(i0 + float2(1, 1)), f.x), f.y);
+            }
+            // Studio-Umgebung (gleiche Lichtsetzung wie die 3D-Wuerfel)
+            float3 envStudio(float3 R)
+            {
+                float h = -R.y;
+                float3 c = lerp(float3(0.05, 0.03, 0.09), float3(0.32, 0.26, 0.42), saturate(h * 0.5 + 0.5));
+                float k1 = dot(R, normalize(float3(-0.5, -0.7, 0.5)));
+                c += float3(1.6, 1.55, 1.5) * smoothstep(0.0, 1.0, saturate((k1 - 0.82) / 0.18 * 3.0));
+                float k2 = dot(R, normalize(float3(0.7, -0.3, 0.6)));
+                c += float3(0.7, 0.45, 1.1) * smoothstep(0.0, 1.0, saturate((k2 - 0.9) / 0.1 * 3.0));
+                float k3 = dot(R, normalize(float3(0.1, -0.25, 1.0)));
+                c += float3(0.35, 0.33, 0.38) * smoothstep(0.0, 1.0, saturate((k3 - 0.7) / 0.3 * 2.0));
+                return c;
+            }
+            float3 lightGGX(float3 n, float3 L, float3 Lc, float3 albedo, float3 F0, float metal, float rough)
+            {
+                float3 v = float3(0, 0, 1);
+                float NdL = saturate(dot(n, L)); if (NdL <= 0.0) return 0;
+                float NdV = max(n.z, 1e-3);
+                float3 h = normalize(L + v);
+                float NdH = saturate(dot(n, h));
+                float a = rough * rough, a2 = a * a;
+                float dd = NdH * NdH * (a2 - 1.0) + 1.0;
+                float D = a2 / (3.14159 * dd * dd);
+                float k = (rough + 1.0) * (rough + 1.0) / 8.0;
+                float G = (NdL / (NdL * (1.0 - k) + k)) * (NdV / (NdV * (1.0 - k) + k));
+                float3 F = F0 + (1.0 - F0) * pow(1.0 - saturate(dot(h, v)), 5.0);
+                float3 spec = D * G * F / (4.0 * NdL * NdV + 1e-4);
+                float3 diff = (1.0 - F) * (1.0 - metal) * albedo / 3.14159;
+                return (diff + spec) * Lc * NdL * 3.14159;
+            }
+            float3 shadePBR(float3 n, float3 albedo, float metal, float rough)
+            {
+                float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metal);
+                float3 c = 0;
+                c += lightGGX(n, normalize(float3(-0.45, -0.62, 0.65)), float3(1.0, 0.97, 0.92) * 1.55, albedo, F0, metal, rough);
+                c += lightGGX(n, normalize(float3(0.6, -0.15, 0.75)), float3(0.75, 0.82, 1.0) * 0.38, albedo, F0, metal, rough);
+                c += lightGGX(n, normalize(float3(0.25, -0.35, -0.9)), float3(1.0, 0.85, 1.0) * 0.55, albedo, F0, metal, rough);
+                float NdV = max(n.z, 1e-3);
+                float3 Fe = F0 + (max(1.0 - rough, F0) - F0) * pow(1.0 - NdV, 5.0);
+                float3 R = float3(0, 0, -1) + 2.0 * n.z * n;
+                c += envStudio(R) * Fe * (1.0 - rough * 0.7);
+                c += albedo * (1.0 - metal) * 0.2;
+                return c;
+            }
+
             // Deckung aus Distanz d (aussen positiv), Strich (sw>0) oder Flaeche, sigma = Weichheit
             float cover(float d, float sw, float sigma)
             {
@@ -159,22 +211,50 @@ Shader "Glamour/Shape"
                     float f = saturate(1.0 - t);
                     cov = f * (0.65 + 0.35 * f);
                 }
-                else if (type == 4) // beleuchtete Kugel
+                else if (type == 4) // Kugel: PBR (Kunststoff/Glas, Metall ueber t3.x, Rauheit t3.y)
                 {
                     float r = max(hs.x, 1e-4);
                     float2 q = p / r;
-                    float d2 = dot(q, q);
-                    float z = sqrt(saturate(1.0 - d2));
-                    float3 n = float3(q.x, q.y, z);
-                    float3 L = normalize(float3(-0.45, -0.55, 0.75));
-                    float diff = saturate(dot(n, L));
-                    float spec = pow(saturate(dot(reflect(-L, n), float3(0, 0, 1))), 28.0);
-                    float rim = pow(1.0 - z, 3.0);
-                    // Skia-Kugel: hell (75%) -> Farbe -> dunkel (40%)
-                    float g = saturate(length(q - float2(-0.35, -0.4)) / 1.5);
-                    float3 lit = g < 0.45 ? lerp(lerp(base.rgb, 1.0, 0.75), base.rgb, g / 0.45) : lerp(base.rgb, base.rgb * 0.4, (g - 0.45) / 0.55);
-                    rgb = toLinear(lit) * (0.55 + 0.6 * diff) + spec * 0.9 + rim * toLinear(base.rgb) * 0.5;
+                    float z = sqrt(saturate(1.0 - dot(q, q)));
+                    float3 n = normalize(float3(q.x, q.y, max(z, 0.02)));
+                    float metal = i.t3.x, rough = i.t3.y > 0.0 ? i.t3.y : 0.28;
+                    float3 alb = toLinear(base.rgb);
+                    rgb = shadePBR(n, alb, metal, rough);
+                    // leichte Volumen-/Unterflaechenstreuung fuer satte Neonfarben
+                    rgb += alb * pow(z, 2.0) * 0.18 * (1.0 - metal);
                     cov = cover(length(p) - r, 0.0, sigma);
+                }
+                else if (type == 11) // Stab/Barren: liegender Zylinder mit runden Enden, PBR (Metall t3.x, Rauheit t3.y)
+                {
+                    float hr = max(hs.y, 1e-4);
+                    float ny = clamp(p.y / hr, -1.0, 1.0);
+                    float ex = abs(p.x) - (hs.x - hr);
+                    float nx = ex > 0.0 ? clamp(ex / hr, -1.0, 1.0) * sign(p.x) : 0.0;
+                    float3 n = normalize(float3(nx, ny, sqrt(saturate(1.0 - nx * nx - ny * ny)) + 0.02));
+                    float metal = i.t3.x, rough = i.t3.y > 0.0 ? i.t3.y : 0.3;
+                    float3 alb = toLinear(base.rgb);
+                    // feine Laengs-Schleifspuren im Metall
+                    float brush = vnoise(float2(p.x * 0.08, p.y * 3.0)) - 0.5;
+                    rgb = shadePBR(normalize(n + float3(0, brush * 0.05, 0)), alb, metal, rough);
+                    cov = cover(sdRoundBox(p, hs, rad), sw, sigma);
+                }
+                else if (type == 12) // Struktur-Overlay: Filz (t3.x=1) oder Papier (t3.x=2), Staerke t3.y, Randabdunklung t3.z
+                {
+                    float d = sdRoundBox(p, hs, rad);
+                    float s = i.t3.y, edge = i.t3.z;
+                    float g;
+                    if (i.t3.x < 1.5)
+                    {
+                        float f1 = vnoise(p * float2(0.9, 0.22)), f2 = vnoise(p * float2(0.22, 0.9) + 17.0), f3 = vnoise(p * 1.7 + 5.0);
+                        g = (f1 * 0.4 + f2 * 0.4 + f3 * 0.2 - 0.5) * 2.0;
+                    }
+                    else g = (vnoise(p * 1.3) * 0.6 + vnoise(p * 3.1 + 9.0) * 0.4 - 0.5) * 2.0;
+                    float rim = edge > 0.0 ? pow(saturate(1.0 + d / edge), 2.0) : 0.0;
+                    float dark = saturate(-g) * s + rim * 0.55;
+                    float lite = saturate(g) * s * 0.6;
+                    rgb = float3(1, 1, 1) * lite / max(dark + lite, 1e-4);
+                    a = saturate(dark + lite) * base.a;
+                    cov = cover(d, 0.0, sigma);
                 }
                 else if (type == 5) // Bild mit optional abgerundeter Maske
                 {

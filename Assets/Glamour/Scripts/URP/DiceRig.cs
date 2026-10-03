@@ -70,7 +70,8 @@ namespace GlamourGames
                 r.shadowCastingMode = ShadowCastingMode.Off; r.receiveShadows = false; r.reflectionProbeUsage = ReflectionProbeUsage.BlendProbes; r.lightProbeUsage = LightProbeUsage.Off;
                 g.SetActive(false); dice[i] = g.transform; rends[i] = r;
             }
-            Die3D.Render3D = Render; Die3D.FrameBegin = () => used = 0; Die3D.FrameEnd = EndFrame;
+            coinMesh = BuildCoinMesh();
+            Die3D.Render3D = Render; Coin3D.Render3D = RenderCoin; Die3D.FrameBegin = () => used = 0; Die3D.FrameEnd = EndFrame;
             cam.enabled = false;
             Log.I("dice3d bereit");
         }
@@ -90,18 +91,112 @@ namespace GlamourGames
             if (rt != null && !rt.IsCreated()) { rt.Create(); shapeMat.SetTexture("_DiceTex", rt); }
         }
 
+        /// <summary>Belegt eine Kachel, setzt Mesh/Materialien/Drehung und blendet sie im Canvas ein (unitsPerWorld = Designeinheiten je Welteinheit).</summary>
+        static bool Place(Canvas2D c, float cx, float cy, float unitsPerWorld, Mesh m, Material[] ms, Quaternion rot)
+        {
+            if (used >= dice.Length || cam == null) return false;
+            int i = used++;
+            var t = dice[i]; if (!t.gameObject.activeSelf) t.gameObject.SetActive(true);
+            t.GetComponent<MeshFilter>().sharedMesh = m; rends[i].sharedMaterials = ms; t.rotation = rot;
+            float u0 = (i % Cols) / (float)Cols, v0 = 1 - (i / Cols) / (float)Rows, span = TileW * unitsPerWorld;
+            c.DrawDice(Gfx.Ctr(cx, cy, span, span), new Vector4(u0, v0, u0 + 1f / Cols, v0 - 1f / Rows), Gfx.Fill(Col.White));
+            return true;
+        }
+
+        static Mesh coinMesh; static Material[] coinMats;
+        static bool RenderCoin(Canvas2D c, float cx, float cy, float r, float angle)
+        {
+            if (coinMats == null)
+            {
+                Material Face(string img)
+                {
+                    var mt = new Material(baseMat) { name = "Coin " + img }; var im = GlamourGames.Assets.Img(img);
+                    mt.SetTexture("_BaseMap", GlamourGames.Assets.Texture); mt.SetColor("_BaseColor", new Color(1, .97f, .9f));
+                    if (im != null) { mt.SetTextureScale("_BaseMap", new Vector2(im.U1 - im.U0, im.V0 - im.V1)); mt.SetTextureOffset("_BaseMap", new Vector2(im.U0, im.V1)); }
+                    mt.SetTexture("_BumpMap", FlatNormal()); mt.EnableKeyword("_NORMALMAP"); mt.SetFloat("_Metallic", .6f); mt.SetFloat("_Smoothness", .74f);
+                    return mt;
+                }
+                var rim = new Material(baseMat) { name = "Coin Rim" };
+                rim.SetColor("_BaseColor", new Color(1f, .8f, .32f)); rim.SetTexture("_BaseMap", Texture2D.whiteTexture); rim.SetTexture("_BumpMap", RimNormal()); rim.EnableKeyword("_NORMALMAP");
+                rim.SetFloat("_Metallic", 1f); rim.SetFloat("_Smoothness", .8f);
+                coinMats = new[] { Face("coin_H"), Face("coin_T"), rim };
+            }
+            return Place(c, cx, cy, r, coinMesh, coinMats, Quaternion.AngleAxis(angle * Mathf.Rad2Deg, Vector3.right));
+        }
+
+        static Texture2D flatN;
+        static Texture2D FlatNormal()
+        {
+            if (flatN != null) return flatN;
+            flatN = new Texture2D(4, 4, TextureFormat.RGBA32, false, true) { name = "FlatNormal" }; var px = new Color[16]; for (int k = 0; k < 16; k++) px[k] = new Color(.5f, .5f, 1, 1); flatN.SetPixels(px); flatN.Apply(false, true); return flatN;
+        }
+        // Randriffelung der Muenze (Normal-Map entlang u)
+        static Texture2D RimNormal()
+        {
+            const int W = 512; var t = new Texture2D(W, 4, TextureFormat.RGBA32, true, true) { name = "CoinRimNormal", wrapMode = TextureWrapMode.Repeat }; var px = new Color[W * 4];
+            for (int x = 0; x < W; x++) { float s = Mathf.Sin(x / (float)W * Mathf.PI * 2 * 120) * .55f; var n = new Vector3(s, 0, 1).normalized; for (int y = 0; y < 4; y++) px[y * W + x] = new Color(n.x * .5f + .5f, .5f, n.z * .5f + .5f, 1); }
+            t.SetPixels(px); t.Apply(true, true); return t;
+        }
+
+        static Mesh BuildCoinMesh()
+        {
+            const int S = 128; const float th = .09f, b = .04f;
+            var pos = new List<Vector3>(); var nor = new List<Vector3>(); var uv = new List<Vector2>(); var tan = new List<Vector4>();
+            var sub = new[] { new List<int>(), new List<int>(), new List<int>() };
+            void Tri(int s, int a, int b2, int c2, Vector3 outward)
+            {
+                if (Vector3.Dot(Vector3.Cross(pos[b2] - pos[a], pos[c2] - pos[a]), outward) < 0) { var x = b2; b2 = c2; c2 = x; }
+                sub[s].Add(a); sub[s].Add(b2); sub[s].Add(c2);
+            }
+            for (int side = 0; side < 2; side++)
+            {
+                float z = side == 0 ? -th : th; var nz = new Vector3(0, 0, side == 0 ? -1 : 1); int c0 = pos.Count;
+                pos.Add(new Vector3(0, 0, z)); nor.Add(nz); uv.Add(new Vector2(.5f, .5f)); tan.Add(new Vector4(1, 0, 0, side == 0 ? -1 : 1));
+                for (int k = 0; k <= S; k++)
+                {
+                    float a = k * Mathf.PI * 2 / S, x = Mathf.Cos(a) * (1 - b), y = Mathf.Sin(a) * (1 - b);
+                    pos.Add(new Vector3(x, y, z)); nor.Add(nz); uv.Add(side == 0 ? new Vector2((x + 1) / 2, (y + 1) / 2) : new Vector2((x + 1) / 2, (1 - y) / 2)); tan.Add(new Vector4(1, 0, 0, side == 0 ? -1 : 1));
+                }
+                for (int k = 0; k < S; k++) Tri(side, c0, c0 + 1 + k, c0 + 2 + k, nz);
+            }
+            // Rand: Profil von vorne nach hinten mit Fasen
+            var prof = new List<(float r, float z, float nr, float nz)>();
+            for (int k = 0; k <= 4; k++) { float a = k / 4f * Mathf.PI / 2; prof.Add((1 - b + Mathf.Sin(a) * b, -th + b - Mathf.Cos(a) * b, Mathf.Sin(a), -Mathf.Cos(a))); }
+            for (int k = 0; k <= 4; k++) { float a = k / 4f * Mathf.PI / 2; prof.Add((1 - b + Mathf.Cos(a) * b, th - b + Mathf.Sin(a) * b, Mathf.Cos(a), Mathf.Sin(a))); }
+            int rb = pos.Count, P = prof.Count;
+            for (int k = 0; k <= S; k++)
+            {
+                float a = k * Mathf.PI * 2 / S, ca = Mathf.Cos(a), sa = Mathf.Sin(a);
+                for (int j = 0; j < P; j++)
+                {
+                    var (r, z, nr, nz) = prof[j];
+                    pos.Add(new Vector3(ca * r, sa * r, z)); nor.Add(new Vector3(ca * nr, sa * nr, nz).normalized); uv.Add(new Vector2(k / (float)S, j / (float)(P - 1)));
+                    tan.Add(new Vector4(-sa, ca, 0, 1));
+                }
+            }
+            for (int k = 0; k < S; k++)
+                for (int j = 0; j < P - 1; j++)
+                {
+                    int q = rb + k * P + j; var o = (nor[q] + nor[q + P + 1]).normalized;
+                    Tri(2, q, q + P, q + 1, o); Tri(2, q + 1, q + P, q + P + 1, o);
+                }
+            var m = new Mesh { name = "GlamourCoin" }; m.SetVertices(pos); m.SetNormals(nor); m.SetUVs(0, uv); m.SetTangents(tan);
+            m.subMeshCount = 3; for (int s = 0; s < 3; s++) m.SetTriangles(sub[s], s); m.RecalculateBounds(); return m;
+        }
+
         static bool Render(Canvas2D c, float cx, float cy, float size, float[] m, Col body, Col pip)
         {
             if (used >= dice.Length || cam == null) return false;
             int i = used++;
             var t = dice[i]; if (!t.gameObject.activeSelf) t.gameObject.SetActive(true);
+            t.GetComponent<MeshFilter>().sharedMesh = mesh;
             // m bildet Wuerfelraum (z zum Betrachter) auf Sichtraum ab; Unity: z vom Betrachter weg -> R = S*m*S mit S = diag(1,1,-1)
             var R = new Matrix4x4();
             R.m00 = m[0]; R.m01 = m[1]; R.m02 = -m[2];
             R.m10 = m[3]; R.m11 = m[4]; R.m12 = -m[5];
             R.m20 = -m[6]; R.m21 = -m[7]; R.m22 = m[8]; R.m33 = 1;
             t.rotation = Quaternion.LookRotation(R.GetColumn(2), R.GetColumn(1));
-            rends[i].sharedMaterial = MaterialFor(body, pip);
+            rends[i].sharedMaterials = new[] { MaterialFor(body, pip) };
             float u0 = (i % Cols) / (float)Cols, v0 = 1 - (i / Cols) / (float)Rows;
             c.DrawDice(Gfx.Ctr(cx, cy, size * 2, size * 2), new Vector4(u0, v0, u0 + 1f / Cols, v0 - 1f / Rows), Gfx.Fill(Col.White));
             return true;

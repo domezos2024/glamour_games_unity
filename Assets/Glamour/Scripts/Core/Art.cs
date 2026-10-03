@@ -67,11 +67,22 @@ namespace GlamourGames
         public static void Card(Canvas2D c, float cx, float cy, float w, string rank, int suit, float flip, float rot = 0, float lift = 0, bool hl = false)
         {
             float h = w * 1.4f, sx = MathF.Abs(MathF.Cos(flip * MathF.PI)); bool face = flip > .5f;
+            float turn = MathF.Sin(flip * MathF.PI), rad = w * .09f;
             c.Save(); c.Translate(cx, cy - lift); c.RotateDegrees(rot);
-            var sh = Gfx.Fill(Col.Black.A(.45f)); sh.Blur = 10 + lift * .1f; c.DrawRoundRect(Gfx.Ctr(6 + lift * .15f, 10 + lift * .3f, w * sx, h), 12, 12, sh);
-            c.Scale(Math.Max(sx, .02f), 1);
+            // Kontaktschatten (eng + weich), waechst mit dem Anheben
+            var sh = Gfx.Fill(Col.Black.A(.32f)); sh.Blur = 18 + lift * .15f; c.DrawRoundRect(Gfx.Ctr(8 + lift * .15f, 14 + lift * .3f, w * sx, h), rad, rad, sh);
+            var sh2 = Gfx.Fill(Col.Black.A(Math.Max(0, .5f - lift * .01f))); sh2.Blur = 3; c.DrawRoundRect(Gfx.Ctr(2, 3, w * sx, h), rad, rad, sh2);
+            // beim Umdrehen leichte Perspektive (die nahe Kante wirkt groesser)
+            c.Scale(Math.Max(sx, .02f), 1 + .06f * turn);
             var r = Gfx.Ctr(0, 0, w, h);
+            // Kartendicke
+            c.DrawRoundRect(r.Offset(0, 2.2f), rad, rad, Gfx.Fill(face ? new Col(170, 160, 190) : new Col(40, 12, 80)));
             if (face) Face(c, r, rank, suit, hl); else Back(c, r);
+            Gfx.Paper(c, r, rad, face ? .07f : .1f);
+            c.Save(); c.ClipRoundRect(r, rad);
+            var gl = Gfx.Fill(Col.White.A(.10f + .14f * turn)); gl.Additive = true; gl.Blur = w * .18f;
+            c.DrawOval(-w * .3f + w * .6f * flip, -h * .32f, w * .55f, h * .16f, gl);
+            c.Restore();
             c.Restore();
         }
     }
@@ -158,11 +169,14 @@ namespace GlamourGames
     /// <summary>3D-Muenze fuer den Muenzwurf.</summary>
     public static class Coin3D
     {
+        /// <summary>Echte 3D-Muenze (URP-Modul): (c, cx, cy, r, angle) -> true wenn gezeichnet.</summary>
+        public static Func<Canvas2D, float, float, float, float, bool> Render3D;
         public static void Draw(Canvas2D c, float cx, float cy, float r, float angle, float lift = 0)
         {
             float cs = MathF.Cos(angle), sn = MathF.Abs(MathF.Sin(angle)); bool head = cs >= 0; float sy = Math.Max(.03f, MathF.Abs(cs)), th = r * .16f;
             var sh = Gfx.Fill(Col.Black.A(.4f - lift * .0015f)); sh.Blur = 14; c.DrawOval(cx, cy + r * 1.05f + lift * .3f, r * (.85f - lift * .001f), r * .2f, sh);
             cy -= lift;
+            if (Render3D != null && Render3D(c, cx, cy, r, angle)) return;
             for (int i = 12; i >= 0; i--)
             {
                 float off = (i / 12f - .5f) * th * 2 * sn * (head ? 1 : -1); var col = C.Gold.Dark(.55f + .25f * (1 - i / 12f));

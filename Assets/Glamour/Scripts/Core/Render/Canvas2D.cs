@@ -129,7 +129,7 @@ namespace GlamourGames
     /// </summary>
     public sealed class Canvas2D
     {
-        public const int SOLID = 0, RRECT = 1, ELLIPSE = 2, RADIAL = 3, BALL = 4, IMAGE = 5, GLYPH = 6, STRIP = 7, PERFORATED = 8, ARC = 9, DICE = 10;
+        public const int SOLID = 0, RRECT = 1, ELLIPSE = 2, RADIAL = 3, BALL = 4, IMAGE = 5, GLYPH = 6, STRIP = 7, PERFORATED = 8, ARC = 9, DICE = 10, ROD = 11, GRAIN = 12;
 
         struct State { public Aff M; public Vector4 Clip; public float ClipR; public float Alpha; }
         static readonly Vector4 NoClip = new Vector4(-1e5f, -1e5f, 1e5f, 1e5f);
@@ -268,7 +268,11 @@ namespace GlamourGames
         /// <summary>Weicher radialer Verlauf (Farbe -&gt; transparent), z.B. fuer Lichthoefe.</summary>
         public void DrawRadial(float x, float y, float r, Paint p) { if (r > 0) Shape(RADIAL, x, y, 1, 0, r, r, 0, p, Vector4.zero, Vector4.zero); }
         /// <summary>Beleuchtete Kugel (Spielsteine, Schlange, Kugeln).</summary>
-        public void DrawBall(float x, float y, float r, Paint p) { if (r > 0) Shape(BALL, x, y, 1, 0, r, r, r, p, Vector4.zero, Vector4.zero); }
+        public void DrawBall(float x, float y, float r, Paint p, float metal = 0, float rough = 0) { if (r > 0) Shape(BALL, x, y, 1, 0, r, r, r, p, new Vector4(metal, rough, 0, 0), Vector4.zero); }
+        /// <summary>Liegender Zylinder mit runden Enden (Stab, Barren), physikalisch beleuchtet.</summary>
+        public void DrawRod(Box r, float rad, Paint p, float metal, float rough) => Shape(ROD, r.MidX, r.MidY, 1, 0, r.Width / 2, r.Height / 2, rad, p, new Vector4(metal, rough, 0, 0), Vector4.zero);
+        /// <summary>Struktur-Overlay: kind 1 = Filz, 2 = Papier; edge = Breite der Randabdunklung (0 = keine).</summary>
+        public void DrawGrain(Box r, float rad, int kind, float strength, float edge, Paint p) => Shape(GRAIN, r.MidX, r.MidY, 1, 0, r.Width / 2, r.Height / 2, rad, p, new Vector4(kind, strength, edge, 0), Vector4.zero);
 
         // ---------------------------------------------------------------- Interna
         static readonly Paint tmpPaint = new Paint();

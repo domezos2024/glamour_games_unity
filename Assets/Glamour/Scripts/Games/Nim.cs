@@ -103,7 +103,7 @@ namespace GlamourGames
                     var col = hl ? (cpuSel ? C.Pink.Mix(C.Orange, .25f) : C.Red.Mix(C.Orange, .4f)) : C.Gold;
                     Gfx.Shadow(c, r, 22, 8, .35f, 0, 6);
                     Gfx.Glow(c, r, 22, col, hl ? 16 : 8, hl ? .9f : .35f);
-                    Gfx.RectGrad(c, r, 22, col.Light(.45f), col.Dark(.55f)); Gfx.RectGrad(c, Gfx.R(r.Left + 8, r.Top + 4, r.Width - 16, r.Height * .35f), 10, Col.White.A(.5f), Col.White.A(0));
+                    Gfx.Rod(c, r, 22, col, 1, hl ? .22f : .3f);
                     var st = Gfx.Line(col.Light(.6f), 2); st.Glow = hl ? 1.8f : 1.15f; c.DrawRoundRect(r, 22, 22, st);
                     for (int q = 0; q < 3; q++) c.DrawCircle(r.Left + 34 + q * 8, r.MidY, 2, Gfx.Fill(col.Dark(.4f)));
                     // wandernder Glanzpunkt
@@ -117,7 +117,7 @@ namespace GlamourGames
             foreach (var f in fly)
             {
                 float a = 1 - Ease.Clamp(f.T / 1.1f); c.Save(); c.Translate(f.X, f.Y); c.RotateDegrees(f.Rot * 57.3f); var r = Gfx.Ctr(0, 0, RW, RHt);
-                Gfx.GlowFill(c, r, 22, C.Orange, 12, .4f * a); Gfx.RectGrad(c, r, 22, f.Col.Light(.4f).A(a), f.Col.Dark(.5f).A(a)); c.Restore();
+                Gfx.GlowFill(c, r, 22, C.Orange, 12, .4f * a); Gfx.Rod(c, r, 22, f.Col.A(a), 1, .3f); c.Restore();
             }
             Gfx.Text(c, status, 800, 172, 36, over ? C.Gold : (cur == 1 ? C.Cyan : C.Pink), Al.C, true, 8);
         }
