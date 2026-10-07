@@ -10,8 +10,12 @@ namespace GlamourGames
         bool Enabled { get; }
         bool Connected { get; }
         string Status { get; }
-        /// <summary>Gekoppelte Geraete (Name, Adresse).</summary>
-        List<(string name, string addr)> Paired();
+        /// <summary>Gekoppelte Geraete.</summary>
+        List<BtDev> Paired();
+        /// <summary>Dienstliste der gekoppelten PCs/Handys neu abfragen (Android: SDP), damit Glamour-Geraete erkennbar sind.</summary>
+        void Scan();
+        /// <summary>Bluetooth-Name dieses Geraets (so sieht es der Mitspieler in seiner Liste).</summary>
+        string LocalName { get; }
         void Host();
         void Join(string addr);
         void Stop();
@@ -19,6 +23,16 @@ namespace GlamourGames
         bool Poll(out string line);
         /// <summary>Fehlende Laufzeit-Berechtigungen anfragen; true = vorhanden.</summary>
         bool EnsurePermission();
+    }
+
+    /// <summary>Gekoppeltes Geraet: Klasse 0x100 = Computer, 0x200 = Telefon (Bluetooth-Hauptklasse); Glamour = bietet den Spieldienst an (zuletzt bekannte Dienstliste).</summary>
+    public sealed class BtDev
+    {
+        public string Name, Addr; public int Major; public bool Glamour;
+        public bool Player => Glamour || Major == 0x100 || Major == 0x200 || Major == 0 || Major == 0x1F00;
+        public string Kind => Major == 0x100 ? "PC" : Major == 0x200 ? "Handy" : "Gerät";
+        /// <summary>Kurzform der Adresse (letzte zwei Bytes), um gleichnamige Eintraege zu unterscheiden.</summary>
+        public string Short => Addr != null && Addr.Length >= 5 ? Addr.Substring(Addr.Length - 5) : Addr;
     }
 
     /// <summary>
@@ -33,6 +47,8 @@ namespace GlamourGames
         public static IBtTransport T;
         public static bool IsHost { get; private set; }
         public static string PeerName = "Mitspieler";
+        /// <summary>Eigener Name im Bluetooth-Spiel: der in den Optionen gesetzte Name, sonst der Bluetooth-Name des Geraets.</summary>
+        public static string MyName { get { var s = Save.Str("pname0", "").Trim(); if (s.Length > 0) return s; var n = T?.LocalName; return string.IsNullOrWhiteSpace(n) ? Pl.Name(0) : n.Trim(); } }
         static bool hello, wasConnected;
         public static bool Connected => T != null && T.Connected && hello;
         public static bool Busy => T != null && (T.Connected || T.Status.StartsWith("wartet") || T.Status.StartsWith("verbindet"));
@@ -75,7 +91,7 @@ namespace GlamourGames
         public static void Update()
         {
             if (T == null) return;
-            if (T.Connected && !wasConnected) { wasConnected = true; Raw("HELLO", Pl.Name(0), Proto); }
+            if (T.Connected && !wasConnected) { wasConnected = true; Raw("HELLO", MyName, Proto); }
             if (!T.Connected && wasConnected)
             {
                 wasConnected = false; bool had = hello; hello = false; queue.Clear();
@@ -87,7 +103,7 @@ namespace GlamourGames
                 var a = line.Split('|');
                 switch (a[0])
                 {
-                    case "HELLO": PeerName = a.Length > 1 && a[1].Length > 0 ? a[1] : "Mitspieler"; hello = true; App.Toast($"Verbunden mit {PeerName}"); Sfx.Play(S.Match, .6f); Log.I("bluetooth: verbunden mit " + PeerName); break;
+                    case "HELLO": PeerName = a.Length > 1 && a[1].Length > 0 ? a[1] : "Mitspieler"; if (PeerName == MyName) PeerName += " (2)"; hello = true; App.Toast($"Verbunden mit {PeerName}"); Sfx.Play(S.Match, .6f); Log.I("bluetooth: verbunden mit " + PeerName); break;
                     case "GO": if (!IsHost && a.Length > 2 && int.TryParse(a[1], out int gi) && gi >= 0 && gi < Registry.All.Count) { int.TryParse(a[2], out Seed); queue.Clear(); HostDriven = true; App.Go(Registry.All[gi].Make()); } break;
                     case "MENU": if (!IsHost) { queue.Clear(); HostDriven = true; App.Go(new Menu()); } break;
                     case "BYE": App.Toast($"{PeerName} hat die Verbindung beendet"); T.Stop(); hello = false; wasConnected = false; App.Current?.NetLost(); break;

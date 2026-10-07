@@ -39,12 +39,12 @@ namespace GlamourGames
         /// <summary>Gegner spielt per Bluetooth an einem anderen Geraet (sitzt auf Platz 2, jedes Geraet sieht sich als Spieler 1).</summary>
         public bool Remote => Opp == Opponent.Remote;
         /// <summary>Name fuer Platz i (0 oder 1); Platz 2 heisst "Computer", wenn der Computer spielt, bzw. wie der Bluetooth-Mitspieler.</summary>
-        public string PName(int i) => i == 1 && Remote ? Link.PeerName : i == 1 && VsCpu ? Opponents.CpuName(Opp) : Pl.Name(i);
+        public string PName(int i) => Remote ? (i == 1 ? Link.PeerName : Link.MyName) : i == 1 && VsCpu ? Opponents.CpuName(Opp) : Pl.Name(i);
 
         // ---------------------------------------------------------------- Bluetooth-Mehrspieler
         /// <summary>Spielnachricht an den Mitspieler (nur im Bluetooth-Spiel).</summary>
         protected void Net(string kind, params object[] data) { if (Remote && OppKey != null) Link.Game(OppKey, kind, data); }
-        Action<int> netToss; int netTossPending = -1;
+        Action<int, int> netToss; int netTossC = -1, netTossR;
         readonly Dictionary<string, Action> netActs = new Dictionary<string, Action>(); int netSeq;
         /// <summary>
         /// Aktion, die im Bluetooth-Spiel auf beiden Geraeten genau einmal ausgefuehrt wird (z. B. "Naechste Runde"):
@@ -52,18 +52,19 @@ namespace GlamourGames
         /// Bei Enter registrieren und die gelieferte Aktion fuer Buttons verwenden.
         /// </summary>
         protected Action Shared(string kind, Action act) { netActs[kind] = act; return () => { if (Remote) Net("sync", kind, netSeq); netSeq++; act(); }; }
-        /// <summary>Muenzwurf im Bluetooth-Spiel: der Host lost aus, beide Geraete zeigen dasselbe Ergebnis (gespiegelt).</summary>
-        internal void NetToss(Action<int> done)
+        /// <summary>Muenzwurf im Bluetooth-Spiel: Wahl (0 Kopf, 1 Zahl) und Ergebnis an den Mitspieler.</summary>
+        internal void SendToss(int choice, int res) => Net("toss", choice, res);
+        /// <summary>Muenzwurf im Bluetooth-Spiel: wartet auf Wahl + Ergebnis des Mitspielers (auch wenn sie schon vorher kamen).</summary>
+        internal void OnToss(Action<int, int> recv)
         {
-            if (Link.IsHost) { int f = Rng.I(2); Net("toss", f); CoinToss.Fixed(this, f, done); return; }
-            if (netTossPending >= 0) { int f = netTossPending; netTossPending = -1; CoinToss.Fixed(this, f, done); } else netToss = done;
+            if (netTossC >= 0) { int c = netTossC; netTossC = -1; recv(c, netTossR); } else netToss = recv;
         }
         /// <summary>Nachricht vom Mitspieler. Spiele ueberschreiben das und rufen fuer Unbekanntes base.NetRecv auf.</summary>
         public virtual void NetRecv(string kind, string[] a)
         {
             switch (kind)
             {
-                case "toss": { int f = 1 - Link.Int(a[0]); if (netToss != null) { var d = netToss; netToss = null; CoinToss.Fixed(this, f, d); } else netTossPending = f; break; }
+                case "toss": { int c = Link.Int(a[0]), r = a.Length > 1 ? Link.Int(a[1]) : 0; if (netToss != null) { var d = netToss; netToss = null; d(c, r); } else { netTossC = c; netTossR = r; } break; }
                 case "sync": if (a.Length > 1 && Link.Int(a[1]) == netSeq && netActs.TryGetValue(a[0], out var act)) { netSeq++; Modal = null; act(); } break;
                 case "left": App.Toast($"{Link.PeerName} hat das Spiel verlassen"); App.Go(new Menu()); break;
             }

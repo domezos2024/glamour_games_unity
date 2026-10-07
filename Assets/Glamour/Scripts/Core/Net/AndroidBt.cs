@@ -25,12 +25,18 @@ namespace GlamourGames
             if (sdk < 31 || Permission.HasUserAuthorizedPermission(Connect)) return true;
             Permission.RequestUserPermission(Connect); return false;
         }
-        public List<(string, string)> Paired()
+        public List<BtDev> Paired()
         {
-            var l = new List<(string, string)>(); if (j == null || !EnsurePermission()) return l;
-            foreach (var row in (j.Call<string>("paired") ?? "").Split('\n')) { var p = row.Split('\t'); if (p.Length == 2) l.Add((p[0], p[1])); }
+            var l = new List<BtDev>(); if (j == null || !EnsurePermission()) return l;
+            foreach (var row in (j.Call<string>("paired") ?? "").Split('\n'))
+            {
+                var p = row.Split('\t'); if (p.Length < 4) continue;
+                int.TryParse(p[2], out int major); l.Add(new BtDev { Name = p[0], Addr = p[1], Major = major, Glamour = p[3] == "1" });
+            }
             return l;
         }
+        public void Scan() { if (j != null && EnsurePermission()) j.Call("scan"); }
+        public string LocalName => j == null ? null : j.Call<string>("localName");
         public void Host() => j?.Call("host");
         public void Join(string addr) => j?.Call("join", addr);
         public void Stop() => j?.Call("stop");

@@ -60,15 +60,17 @@ namespace GlamourGames
         public string Status => status;
         public bool EnsurePermission() => true;
 
-        public List<(string, string)> Paired()
+        public void Scan() { }
+        public string LocalName => Environment.MachineName;
+        public List<BtDev> Paired()
         {
-            var l = new List<(string, string)>();
+            var l = new List<BtDev>();
             try
             {
                 var p = new SEARCH_PARAMS { fReturnAuthenticated = 1, fReturnRemembered = 1, fReturnConnected = 1 }; p.dwSize = Marshal.SizeOf(p);
                 var d = new DEVICE_INFO(); d.dwSize = Marshal.SizeOf(d);
                 var h = BluetoothFindFirstDevice(ref p, ref d); if (h == IntPtr.Zero) return l;
-                do { l.Add((string.IsNullOrEmpty(d.szName) ? Addr(d.Address) : d.szName, Addr(d.Address))); d = new DEVICE_INFO(); d.dwSize = Marshal.SizeOf(d); } while (BluetoothFindNextDevice(h, ref d));
+                do { l.Add(new BtDev { Name = string.IsNullOrEmpty(d.szName) ? Addr(d.Address) : d.szName, Addr = Addr(d.Address), Major = (int)(d.ulClassofDevice & 0x1F00) }); d = new DEVICE_INFO(); d.dwSize = Marshal.SizeOf(d); } while (BluetoothFindNextDevice(h, ref d));
                 BluetoothFindDeviceClose(h);
             }
             catch (Exception e) { status = "Fehler: " + e.Message; }
