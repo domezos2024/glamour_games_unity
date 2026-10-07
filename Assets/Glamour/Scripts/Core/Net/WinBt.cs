@@ -20,7 +20,7 @@ namespace GlamourGames
         const uint BT_PORT_ANY = 0xFFFFFFFF; static readonly IntPtr Invalid = new IntPtr(-1);
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)] struct SOCKADDR_BTH { public ushort family; public ulong addr; public Guid service; public uint port; }
-        [StructLayout(LayoutKind.Sequential)] struct CSADDR_INFO { public IntPtr local; public int localLen; public IntPtr remote; public int remoteLen; public int socketType; public int protocol; }
+        [StructLayout(LayoutKind.Sequential)] struct BLOB { public int cbSize; public IntPtr pBlobData; }
         [StructLayout(LayoutKind.Sequential)]
         struct WSAQUERYSET
         {
@@ -50,7 +50,7 @@ namespace GlamourGames
 
         static bool started; readonly ConcurrentQueue<string> inbox = new ConcurrentQueue<string>(); readonly object sendLock = new object();
         IntPtr listenSock = Invalid, sock = Invalid; volatile bool connected; volatile string status = "bereit"; volatile int gen;
-        WSAQUERYSET reg; bool registered; IntPtr regName, regGuid, regAddr, regCs;
+        WSAQUERYSET reg; bool registered; IntPtr regVer, regHandle, regSet, regBlob;
 
         public WinBt() { if (!started) { WSAStartup(0x0202, new byte[1024]); started = true; } }
         bool? supported;
@@ -140,22 +140,36 @@ namespace GlamourGames
         }
 
         // ---- SDP-Anmeldung des Dienstes (damit Android per UUID verbinden kann)
+        // Fertiger SDP-Datensatz (BTH_SET_SERVICE): Dienstklasse = unsere UUID, Protokolle L2CAP + RFCOMM-Kanal, Name.
+        // Die einfache Anmeldung nur mit Dienstklasse und Adresse lehnt Windows teils mit WSAEINVAL (10022) ab.
+        static byte[] SdpRecord(byte channel)
+        {
+            var u = Service.ToByteArray(); var be = new byte[16];
+            be[0] = u[3]; be[1] = u[2]; be[2] = u[1]; be[3] = u[0]; be[4] = u[5]; be[5] = u[4]; be[6] = u[7]; be[7] = u[6]; Array.Copy(u, 8, be, 8, 8);
+            var b = new List<byte> { 0x09, 0x00, 0x01, 0x35, 0x11, 0x1C }; b.AddRange(be);                                         // ServiceClassIDList
+            b.AddRange(new byte[] { 0x09, 0x00, 0x04, 0x35, 0x0C, 0x35, 0x03, 0x19, 0x01, 0x00, 0x35, 0x05, 0x19, 0x00, 0x03, 0x08, channel }); // L2CAP, RFCOMM(Kanal)
+            b.AddRange(new byte[] { 0x09, 0x00, 0x05, 0x35, 0x03, 0x19, 0x10, 0x02 });                                           // PublicBrowseGroup
+            var name = Encoding.ASCII.GetBytes("Glamour Games"); b.AddRange(new byte[] { 0x09, 0x01, 0x00, 0x25, (byte)name.Length }); b.AddRange(name);
+            var r = new List<byte> { 0x35, (byte)b.Count }; r.AddRange(b); return r.ToArray();
+        }
         void Register(SOCKADDR_BTH local)
         {
-            regName = Marshal.StringToHGlobalUni("Glamour Games");
-            regGuid = Marshal.AllocHGlobal(16); Marshal.StructureToPtr(Service, regGuid, false);
-            regAddr = Marshal.AllocHGlobal(Marshal.SizeOf(local)); Marshal.StructureToPtr(local, regAddr, false);
-            var cs = new CSADDR_INFO { local = regAddr, localLen = Marshal.SizeOf(local), remote = regAddr, remoteLen = Marshal.SizeOf(local), socketType = SOCK_STREAM, protocol = BTHPROTO_RFCOMM };
-            regCs = Marshal.AllocHGlobal(Marshal.SizeOf(cs)); Marshal.StructureToPtr(cs, regCs, false);
-            reg = new WSAQUERYSET { lpszServiceInstanceName = regName, lpServiceClassId = regGuid, dwNameSpace = NS_BTH, dwNumberOfCsAddrs = 1, lpcsaBuffer = regCs }; reg.dwSize = Marshal.SizeOf(reg);
+            var rec = SdpRecord((byte)local.port); const int Hdr = 44;   // BTH_SET_SERVICE (x64): pSdpVersion, pRecordHandle, fCodService, Reserved[5], ulRecordLength, pRecord[]
+            regVer = Marshal.AllocHGlobal(4); Marshal.WriteInt32(regVer, 1);
+            regHandle = Marshal.AllocHGlobal(8); Marshal.WriteInt64(regHandle, 0);
+            regSet = Marshal.AllocHGlobal(Hdr + rec.Length); for (int i = 0; i < Hdr; i++) Marshal.WriteByte(regSet, i, 0);
+            Marshal.WriteIntPtr(regSet, 0, regVer); Marshal.WriteIntPtr(regSet, 8, regHandle); Marshal.WriteInt32(regSet, 40, rec.Length);
+            Marshal.Copy(rec, 0, regSet + Hdr, rec.Length);
+            var blob = new BLOB { cbSize = Hdr + rec.Length, pBlobData = regSet }; regBlob = Marshal.AllocHGlobal(Marshal.SizeOf(blob)); Marshal.StructureToPtr(blob, regBlob, false);
+            reg = new WSAQUERYSET { dwNameSpace = NS_BTH, lpBlob = regBlob }; reg.dwSize = Marshal.SizeOf(reg);
             registered = WSASetServiceW(ref reg, RNRSERVICE_REGISTER, 0) == 0;
-            if (!registered) Log.I("bluetooth: SDP-Anmeldung fehlgeschlagen " + WSAGetLastError());
+            Log.I(registered ? $"bluetooth: SDP angemeldet (Kanal {local.port})" : "bluetooth: SDP-Anmeldung fehlgeschlagen " + WSAGetLastError());
         }
         void Unregister()
         {
             if (registered) { WSASetServiceW(ref reg, RNRSERVICE_DELETE, 0); registered = false; }
-            foreach (var p in new[] { regName, regGuid, regAddr, regCs }) if (p != IntPtr.Zero) Marshal.FreeHGlobal(p);
-            regName = regGuid = regAddr = regCs = IntPtr.Zero;
+            foreach (var p in new[] { regVer, regHandle, regSet, regBlob }) if (p != IntPtr.Zero) Marshal.FreeHGlobal(p);
+            regVer = regHandle = regSet = regBlob = IntPtr.Zero;
         }
     }
 }
