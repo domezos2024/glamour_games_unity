@@ -1,9 +1,11 @@
 package de.domezosware.glamourgames;
 
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
+import android.os.ParcelUuid;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -46,16 +48,37 @@ public class GlamourBt {
     public String status() { return status; }
     public String peer() { return peer; }
 
-    /** Gekoppelte Geraete als "Name\tAdresse\n"-Liste. */
+    /** Gekoppelte Geraete als "Name\tAdresse\tHauptklasse\tGlamour(0/1)\n"-Liste; Glamour = Dienst-UUID in der zuletzt bekannten Dienstliste. */
     public String paired() {
         StringBuilder sb = new StringBuilder();
         try {
             for (BluetoothDevice d : adapter.getBondedDevices()) {
-                String n = d.getName(); sb.append(n == null ? d.getAddress() : n.replace('\t', ' ').replace('\n', ' ')).append('\t').append(d.getAddress()).append('\n');
+                String n = d.getName(); int major = 0;
+                try { BluetoothClass c = d.getBluetoothClass(); if (c != null) major = c.getMajorDeviceClass(); } catch (Exception ignored) { }
+                sb.append(n == null ? d.getAddress() : n.replace('\t', ' ').replace('\n', ' ')).append('\t').append(d.getAddress())
+                  .append('\t').append(major).append('\t').append(offers(d) ? '1' : '0').append('\n');
             }
         } catch (SecurityException e) { status = "Berechtigung fehlt"; } catch (Exception e) { status = "Fehler: " + e.getMessage(); }
         return sb.toString();
     }
+
+    static boolean offers(BluetoothDevice d) {
+        try { ParcelUuid[] u = d.getUuids(); if (u != null) for (ParcelUuid p : u) if (SERVICE.equals(p.getUuid())) return true; } catch (Exception ignored) { }
+        return false;
+    }
+
+    /** Dienstlisten gekoppelter PCs/Handys im Hintergrund neu abfragen (Ergebnis erscheint beim naechsten paired()). */
+    public void scan() {
+        try {
+            for (BluetoothDevice d : adapter.getBondedDevices()) {
+                BluetoothClass c = d.getBluetoothClass(); int m = c == null ? 0 : c.getMajorDeviceClass();
+                if (m == BluetoothClass.Device.Major.COMPUTER || m == BluetoothClass.Device.Major.PHONE) d.fetchUuidsWithSdp();
+            }
+        } catch (Exception e) { Log.w(TAG, "scan: " + e); }
+    }
+
+    /** Bluetooth-Name dieses Geraets. */
+    public String localName() { try { return adapter == null ? "" : adapter.getName(); } catch (Exception e) { return ""; } }
 
     /** Eroeffnen: Dienst anmelden und auf einen Mitspieler warten. */
     public void host() {

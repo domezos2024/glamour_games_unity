@@ -17,11 +17,13 @@ namespace GlamourGames
         public TcpBt(int port) { this.port = port; }
         public bool Supported => true; public bool Enabled => true; public bool Connected => con; public string Status => st;
         public bool EnsurePermission() => true;
-        public List<(string name, string addr)> Paired() => new List<(string, string)> { ("Testpartner", "127.0.0.1") };
-        public void Host() { st = "wartet auf Mitspieler"; new Thread(() => { var l = new TcpListener(IPAddress.Loopback, port); l.Start(); var c = l.AcceptTcpClient(); l.Stop(); Run(c); }) { IsBackground = true }.Start(); }
+        public List<BtDev> Paired() => new List<BtDev> { new BtDev { Name = "Kopfhörer", Addr = "00:00:00:00:7C:D3", Major = 0x400 }, new BtDev { Name = "Testpartner", Addr = "127.0.0.1", Major = 0x100, Glamour = true }, new BtDev { Name = "Altes Gerät", Addr = "00:00:00:00:7D:02", Major = 0x100 } };
+        public void Scan() { }
+        string role = "Testgerät"; public string LocalName => role;
+        public void Host() { role = "Eröffner"; st = "wartet auf Mitspieler"; new Thread(() => { var l = new TcpListener(IPAddress.Loopback, port); l.Start(); var c = l.AcceptTcpClient(); l.Stop(); Run(c); }) { IsBackground = true }.Start(); }
         public void Join(string addr)
         {
-            st = "verbindet ...";
+            role = "Gast"; st = "verbindet ...";
             new Thread(() => { for (int i = 0; i < 100; i++) { try { Run(new TcpClient("127.0.0.1", port)); return; } catch { Thread.Sleep(100); } } st = "Verbindung fehlgeschlagen"; }) { IsBackground = true }.Start();
         }
         void Run(TcpClient c)

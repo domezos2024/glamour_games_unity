@@ -70,8 +70,9 @@ namespace GlamourGames
             FontAtlas.Load(); Assets.Load();
 
             // Mehrspieler-Test: TCP statt Bluetooth, Host/Mitspieler verbinden sich vor dem Start
-            if (net != null) { var nv = net.Split(':'); Link.T = new TcpBt(int.Parse(nv[1])); if (nv[0] == "host") Link.Host(); else Link.Join("127.0.0.1"); realtime = true; }
-            Scene cur = scene == "menu" ? new Menu() : scene == "options" ? new Options() : Registry.All[int.Parse(scene)].Make();
+            if (net != null) { var nv = net.Split(':'); Link.T = new TcpBt(int.Parse(nv[1])); if (nv[0] == "host") Link.Host(); else Link.Join("127.0.0.1"); realtime = true; for (int w = 0; w < 300 && !Link.Connected; w++) { Link.Update(); System.Threading.Thread.Sleep(16); } }
+            if (net == null && scene == "lobby") Link.T = new TcpBt(47999);   // Geraeteliste zeigen
+            Scene cur = scene == "menu" ? new Menu() : scene == "options" ? new Options() : scene == "lobby" ? new BtLobby() : Registry.All[int.Parse(scene)].Make();
             App.Current = cur; cur.Enter();
             var events = new List<(float t, string a, string p1, string p2)>();
             foreach (var e in script.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
