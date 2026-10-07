@@ -81,16 +81,4 @@ namespace GlamourGames
         public static string Name(int i) { var s = Save.Str("pname" + i, "").Trim(); return s.Length == 0 ? "Spieler " + (i + 1) : s; }
         public static void SetName(int i, string n) => Save.Set("pname" + i, n.Trim());
     }
-
-    /// <summary>Platzhalter fuer Vibrationsfeedback (am PC ohne Funktion, API wie Android-Version).</summary>
-    public static class Haptics
-    {
-        public const bool Available = false;
-        public static bool On;
-        public static void Tap() { }
-        public static void Hit() { }
-        public static void Toss() { }
-        public static void Win() { }
-        public static void Lose() { }
-    }
 }

@@ -16,13 +16,17 @@ namespace GlamourGames
         int[] dots = { -1, -1, -1 }; int[] win; bool over, roundEnd; string status = ""; float winT; int hover = -1; bool lockIn;
         // Computer-Gegner: gen verhindert, dass alte Timer in ein neues Spiel feuern
         int gen; bool tossing; int cpuAim = -1; float cpuAimT;
+        // Physik: Zeichen werden aufgestempelt (Feder-Daempfer schwingt nach) und fallen beim neuen Spiel als Starrkoerper vom Brett
+        readonly float[] stampT = Enumerable.Repeat(-9f, 9).ToArray(); readonly List<(Body b, int who)> falling = new List<(Body, int)>();
+        const float PxPerM = 1500;
         const float CS = 180, BX = 800 - CS * 1.5f, BY = 190;
         static Box Cell(int i) => Gfx.R(BX + (i % 3) * CS, BY + (i / 3) * CS, CS, CS);
         public override void Enter()
         {
             base.Enter();
+            netNewMatch = Shared("newmatch", NewMatch); netNextRound = Shared("nextround", () => { roundEnd = false; NewRound(); });
             Opponents.AddSwitch(this, OppKey, 40, 680, 260, 70, NewMatch);
-            Ui.Add(new Button(40, 780, 260, 62, "Punkte zurück", C.Purple, NewMatch, 22));
+            Ui.Add(new Button(40, 780, 260, 62, "Punkte zurück", C.Purple, () => netNewMatch(), 22));
             Opponents.Pick(this, OppKey, o => StartMatch());
         }
         void NewMatch() { points = new int[3]; wins = new int[3]; StartMatch(); }
@@ -30,12 +34,18 @@ namespace GlamourGames
         void NewRound() { roundEnd = false; rw = new int[3]; dots = new[] { -1, -1, -1 }; gameIdx = 0; starter = 3 - starter; NewGame(); }
         void NewGame()
         {
+            for (int i = 0; i < 9; i++)
+                if (b[i] != 0) { var r = Cell(i); falling.Add((new Body { X = r.MidX, Y = r.MidY, Hw = 52, Hh = 52, Vx = (r.MidX - 800) * 1.2f + (Rng.F() - .5f) * 80, Vy = -Rng.F(150, 420), W = (Rng.F() - .5f) * 7, Gravity = Phys.Gpx(PxPerM), Drag = .0004f }, b[i])); }
+            if (falling.Count > 0) Sfx.Play(S.Whoosh, .4f);
             gen++; CancelCpuThink(); b = new int[9]; pt = new float[9]; win = null; over = false; lockIn = false; winT = 0; cpuAim = -1; hover = -1;
             cur = gameIdx % 2 == 0 ? starter : 3 - starter; status = $"{PName(cur - 1)} ist dran"; CpuCheck();
         }
         bool CpuTurn => VsCpu && cur == 2 && !over && !tossing;
         /// <summary>Mensch darf nicht klicken, solange der Computer am Zug ist oder nachdenkt.</summary>
-        bool Locked => CpuTurn || CpuThinking || cpuAim >= 0;
+        bool Locked => CpuTurn || CpuThinking || cpuAim >= 0 || RemoteTurn;
+        // Bluetooth: Platz 2 ist der Mitspieler am anderen Geraet
+        bool RemoteTurn => Remote && cur == 2 && !over && !tossing; Action netNewMatch, netNextRound;
+        public override void NetRecv(string kind, string[] a) { if (kind == "place") { if (RemoteTurn) Place(Link.Int(a[0])); } else base.NetRecv(kind, a); }
         public override bool WantsHand => hover >= 0 && !Locked;
         public override void MouseMove(float x, float y) { hover = -1; if (over || Modal != null || Locked) return; for (int i = 0; i < 9; i++) if (Cell(i).Contains(x, y) && b[i] == 0) hover = i; }
         public override void MouseUp(float x, float y) { if (Locked) return; if (hover >= 0) Place(hover); }
@@ -58,7 +68,8 @@ namespace GlamourGames
         void Place(int i)
         {
             if (over || b[i] != 0 || lockIn) return;
-            b[i] = cur; hover = -1; Sfx.Play(cur == 1 ? S.PlaceX : S.PlaceO); var r = Cell(i); Fx.Burst(r.MidX, r.MidY, 14, new[] { cur == 1 ? C.Cyan : C.Pink }, 200);
+            if (Remote && cur == 1) Net("place", i);
+            b[i] = cur; stampT[i] = Time; hover = -1; Sfx.Play(cur == 1 ? S.PlaceX : S.PlaceO); var r = Cell(i); Fx.Burst(r.MidX, r.MidY, 14, new[] { cur == 1 ? C.Cyan : C.Pink }, 200);
             Fx.Ring(r.MidX, r.MidY, cur == 1 ? C.Cyan : C.Pink, 18, 160);
             win = Lines.FirstOrDefault(l => b[l[0]] != 0 && b[l[0]] == b[l[1]] && b[l[1]] == b[l[2]]);
             int g = gen;
@@ -88,18 +99,19 @@ namespace GlamourGames
             if (w > 0)
             {
                 points[w] += 8; Sfx.Play(S.Big); Celebrate(w == 1 ? C.Cyan : C.Pink, 5, 1.1f); App.Shake(10);
-                Action show = () => Result($"{PName(w - 1)} gewinnt die RUNDE!", $"Ergebnis {rw[1]}:{rw[2]}  -  +8 Punkte", w == 1 ? C.Cyan : C.Pink, ("Nächste Runde", C.Green, () => { roundEnd = false; NewRound(); }), ("Menü", C.Purple, () => App.Go(new Menu())));
+                Action show = () => Result($"{PName(w - 1)} gewinnt die RUNDE!", $"Ergebnis {rw[1]}:{rw[2]}  -  +8 Punkte", w == 1 ? C.Cyan : C.Pink, ("Nächste Runde", C.Green, netNextRound), ("Menü", C.Purple, () => App.Go(new Menu())));
                 // Highscore nur fuer Menschen (der Computer traegt sich nicht ein)
-                bool human = !(VsCpu && w == 2);
+                bool human = !((VsCpu || Remote) && w == 2);
                 Tm.After(3f, () => { if (g != gen) return; if (human && Save.IsHigh("hs_ttt", points[w])) NameEntry("hs_ttt", points[w], "NEUER HIGHSCORE!", show); else show(); });
             }
-            else Result("Runde unentschieden", $"Ergebnis {rw[1]}:{rw[2]}", C.Gold, ("Nächste Runde", C.Green, () => { roundEnd = false; NewRound(); }), ("Menü", C.Purple, () => App.Go(new Menu())));
+            else Result("Runde unentschieden", $"Ergebnis {rw[1]}:{rw[2]}", C.Gold, ("Nächste Runde", C.Green, netNextRound), ("Menü", C.Purple, () => App.Go(new Menu())));
         }
         public override void Update(float dt)
         {
             for (int i = 0; i < 9; i++) if (b[i] != 0) pt[i] = Math.Min(1, pt[i] + dt * 3.2f);
             if (win != null) winT += dt;
             if (cpuAim >= 0) cpuAimT += dt;
+            for (int i = falling.Count - 1; i >= 0; i--) { falling[i].b.Update(dt); if (falling[i].b.Y > App.VY1 + 120) falling.RemoveAt(i); }
         }
         public override void Draw(Canvas2D c)
         {
@@ -133,8 +145,9 @@ namespace GlamourGames
                     float k = Ease.OutCubic(cpuAimT / .25f); var ir = Gfx.Inflate(r, -12);
                     Gfx.Rect(c, ir, 16, C.Pink.A(.16f * k)); Gfx.Glow(c, ir, 16, C.Pink, 10, .5f * k); DrawMark(c, 2, r.MidX, r.MidY, 1, .3f * k);
                 }
-                if (b[i] != 0) DrawMark(c, b[i], r.MidX, r.MidY, Ease.OutCubic(pt[i]), 1, win != null && win.Contains(i) ? .5f + .5f * MathF.Sin(winT * 10) : 0);
+                if (b[i] != 0) DrawMark(c, b[i], r.MidX, r.MidY, Ease.OutCubic(pt[i]), 1, win != null && win.Contains(i) ? .5f + .5f * MathF.Sin(winT * 10) : 0, Phys.Ring(2.4f, Time - stampT[i], 4.5f, .3f));
             }
+            foreach (var (fb, who) in falling) { c.Save(); fb.Apply(c); DrawMark(c, who, 0, 0, 1, .9f); c.Restore(); }
             if (win != null)
             {
                 var a = Cell(win[0]); var z = Cell(win[2]); float p = Ease.OutCubic(winT / .5f); var col = (b[win[0]] == 1 ? C.Cyan : C.Pink);
@@ -145,10 +158,10 @@ namespace GlamourGames
             }
             Gfx.Text(c, status, 800, 838, 34, over && win != null ? (b[win[0]] == 1 ? C.Cyan : C.Pink) : Col.White, Al.C, true, 8);
         }
-        static void DrawMark(Canvas2D c, int who, float cx, float cy, float p, float alpha = 1, float glow = 0)
+        static void DrawMark(Canvas2D c, int who, float cx, float cy, float p, float alpha = 1, float glow = 0, float squash = 0)
         {
             var col = who == 1 ? C.Cyan : C.Pink; float s = 52;
-            c.Save(); c.Translate(cx, cy); float sc = 1 + glow * .08f; c.Scale(sc, sc);
+            c.Save(); c.Translate(cx, cy); float sc = 1 + glow * .08f; c.Scale(sc * (1 + squash), sc * (1 - squash));
             // Lichthof unter dem Zeichen (additiv, HDR)
             if (alpha > .5f) Gfx.Light(c, 0, 0, s * 1.9f, col, (.16f + glow * .2f) * alpha * p);
             if (who == 1)

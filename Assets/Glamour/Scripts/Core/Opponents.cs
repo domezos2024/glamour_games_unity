@@ -3,12 +3,12 @@ using System;
 namespace GlamourGames
 {
     /// <summary>Wer auf Platz 2 spielt: ein Mensch am selben PC oder der Computer in drei Staerken.</summary>
-    public enum Opponent { Human = 0, Easy = 1, Medium = 2, Hard = 3 }
+    public enum Opponent { Human = 0, Easy = 1, Medium = 2, Hard = 3, Remote = 4 }
 
     /// <summary>Auswahl und Speicherung des Gegners pro Spiel sowie gemeinsame KI-Hilfen.</summary>
     public static class Opponents
     {
-        public static string Label(Opponent o) => o switch { Opponent.Easy => "Leicht", Opponent.Medium => "Mittel", Opponent.Hard => "Schwer", _ => "2 Spieler" };
+        public static string Label(Opponent o) => o switch { Opponent.Easy => "Leicht", Opponent.Medium => "Mittel", Opponent.Hard => "Schwer", Opponent.Remote => "Bluetooth", _ => "2 Spieler" };
         public static string CpuName(Opponent o) => "Computer";
         public static string Describe(Opponent o) => o == Opponent.Human ? "Gegner: Mensch" : $"Gegner: Computer ({Label(o)})";
         public static Opponent Load(string key) => (Opponent)Math.Clamp(Save.Int("opp_" + key, 0), 0, 3);
@@ -26,9 +26,11 @@ namespace GlamourGames
         /// </summary>
         /// <summary>Automatische Screenshots (--skip=N): 1 = Gegnerwahl ueberspringen, 2 = zusaetzlich Muenzwurf.</summary>
         public static int Skip;
-        public static void Pick(Scene s, string key, Action<Opponent> done, string humanLabel = "2 Spieler", string humanSub = "an einem PC", string title = "Gegner wählen")
+        public static void Pick(Scene s, string key, Action<Opponent> done, string humanLabel = "2 Spieler", string humanSub = null, string title = "Gegner wählen")
         {
             var last = Load(key);
+            // per Bluetooth verbunden: der Mitspieler am anderen Geraet ist der Gegner
+            if (Link.Connected) { s.Opp = Opponent.Remote; s.Modal = null; done(Opponent.Remote); return; }
             if (Skip > 0) { done(last); return; }
             var m = new Modal { Title = title, Col = C.Cyan, W = 1180, H = 470, Sub = "Gegen wen möchtest du spielen?" };
             m.Lines.Add("Die Wahl wird gespeichert und lässt sich im Spiel jederzeit ändern.");
@@ -39,7 +41,7 @@ namespace GlamourGames
                 b.Click = () => { Store(key, o); s.Opp = o; s.Modal = null; done(o); };
                 m.Btns.Add(b);
             }
-            Add(Opponent.Human, humanLabel, humanSub, C.Cyan);
+            Add(Opponent.Human, humanLabel, humanSub ?? Platform.Pick("an einem PC", "an einem Gerät"), C.Cyan);
             Add(Opponent.Easy, "Computer", "Leicht", C.Green);
             Add(Opponent.Medium, "Computer", "Mittel", C.Gold);
             Add(Opponent.Hard, "Computer", "Schwer", C.Red);
@@ -75,14 +77,14 @@ namespace GlamourGames
         }
 
         /// <summary>Fuegt einen Button "Gegner: ..." hinzu, der die Auswahl erneut oeffnet und dann restart aufruft.</summary>
-        public static Button AddSwitch(Scene s, string key, float x, float y, float w, float h, Action restart, string humanLabel = "2 Spieler", string humanSub = "an einem PC")
+        public static Button AddSwitch(Scene s, string key, float x, float y, float w, float h, Action restart, string humanLabel = "2 Spieler", string humanSub = null)
         {
             Button b = null;
-            b = s.Ui.Add(new Button(x, y, w, h, "", C.Cyan, () => Pick(s, key, o => { s.Opp = o; restart(); }, humanLabel, humanSub), 20));
+            b = s.Ui.Add(new Button(x, y, w, h, "", C.Cyan, () => { if (s.Remote) { App.Toast("Bluetooth-Spiel - Trennen im Menü"); return; } Pick(s, key, o => { s.Opp = o; restart(); }, humanLabel, humanSub); }, 20));
             b.Custom = (c, r, hv) =>
             {
                 Gfx.Text(c, "GEGNER", r.MidX, r.Top + 18, 15, C.Dim, Al.C, true);
-                Gfx.Text(c, s.Opp == Opponent.Human ? humanLabel : "Computer · " + Label(s.Opp), r.MidX, r.MidY + 9, 22, Col.White, Al.C, true, 3 * hv);
+                Gfx.Text(c, s.Opp == Opponent.Human ? humanLabel : s.Remote ? "Bluetooth · " + Link.PeerName : "Computer · " + Label(s.Opp), r.MidX, r.MidY + 9, 22, Col.White, Al.C, true, 3 * hv);
                 return true;
             };
             return b;

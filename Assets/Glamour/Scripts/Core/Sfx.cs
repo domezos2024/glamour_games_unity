@@ -27,13 +27,16 @@ namespace GlamourGames
 
         public static void Init(GameObject host)
         {
+            if (Platform.Touch) { var cfg = AudioSettings.GetConfiguration(); cfg.dspBufferSize = 512; AudioSettings.Reset(cfg); } // geringe Latenz fuer Effekte
             Muted = Save.Int("muted", 0) != 0;
             Track = Math.Clamp(Save.Int("music", 0), -1, TrackNames.Length - 1); MusicOff = Save.Int("musicoff", 0) != 0; SfxOff = Save.Int("sfxoff", 0) != 0;
             Vol = Save.Int("sfxvol", 50) / 100f; MusicVol = Save.Int("musicvol", 80) / 100f;
             voices = new AudioSource[28];
             for (int i = 0; i < voices.Length; i++) { var s = host.AddComponent<AudioSource>(); s.playOnAwake = false; s.spatialBlend = 0; voices[i] = s; }
             music = host.AddComponent<AudioSource>(); music.loop = true; music.playOnAwake = false; music.spatialBlend = 0; music.priority = 0;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             try { Build(); } catch (Exception e) { Log.I("sfx build " + e.Message); }
+            Log.I($"Effekt-Bank erzeugt in {sw.ElapsedMilliseconds} ms");
             StartMusic();
         }
 

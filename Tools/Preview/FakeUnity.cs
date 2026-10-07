@@ -71,5 +71,6 @@ namespace UnityEngine
     }
     public static class ImageConversion { public static bool LoadImage(this Texture2D t, byte[] data, bool nonReadable) => true; }
     public static class Debug { public static void Log(object o) { if (Environment.GetEnvironmentVariable("PREVIEW_LOG") == "1") Console.WriteLine(o); } public static void LogError(object o) => Console.WriteLine("ERROR " + o); public static void LogException(Exception e) => Console.WriteLine(e); }
-    public static class Application { public static string persistentDataPath => Path.Combine(Path.GetTempPath(), "glamour_preview"); }
+    public static class Time { public static float realtimeSinceStartup => (float)(DateTime.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()).TotalSeconds; }
+    public static class Application { public static string persistentDataPath => Path.Combine(Path.GetTempPath(), "glamour_preview"); public static bool isMobilePlatform => Environment.GetEnvironmentVariable("PREVIEW_TOUCH") == "1"; public static bool isEditor => false; }
 }

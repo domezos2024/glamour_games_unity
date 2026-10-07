@@ -20,7 +20,7 @@ namespace GlamourGames
             bSfxOn = Ui.Add(new Button(1300, 350, 260, 76, "", C.Green, () => { Sfx.SetSfxOff(!Sfx.SfxOff); Sfx.Play(S.Coin); }, 28));
             bName0 = Ui.Add(new Button(300, 556, 500, 84, "", C.Cyan, () => Edit(0), 32));
             bName1 = Ui.Add(new Button(830, 556, 500, 84, "", C.Pink, () => Edit(1), 32));
-            bHap = Ui.Add(new Button(300, 722, 460, 84, "", C.Green, App.ToggleFullscreen, 28));
+            bHap = Ui.Add(new Button(300, 722, 460, 84, "", C.Green, () => { if (Platform.Touch) { Haptics.On = !Haptics.On; Haptics.Tap(); } else App.ToggleFullscreen(); }, 28));
             Ui.Add(new Button(1000, 722, 330, 84, "Fertig", C.Gold, () => App.Go(new Menu()), 34));
         }
         void Step(int d)
@@ -54,7 +54,7 @@ namespace GlamourGames
         {
             bMusOn.Text = Sfx.MusicOff ? "Musik: AUS" : "Musik: AN"; bMusOn.Col = Sfx.MusicOff ? C.Red : C.Green;
             bSfxOn.Text = Sfx.SfxOff ? "Effekte: AUS" : "Effekte: AN"; bSfxOn.Col = Sfx.SfxOff ? C.Red : C.Green;
-            bHap.Text = App.Fullscreen ? "Vollbild: AN" : "Vollbild: AUS"; bHap.Col = App.Fullscreen ? C.Green : C.Red;
+            bool hapOn = Platform.Touch ? Haptics.On : App.Fullscreen; bHap.Text = Platform.Touch ? (hapOn ? "Vibration: AN" : "Vibration: AUS") : (hapOn ? "Vollbild: AN" : "Vollbild: AUS"); bHap.Col = hapOn ? C.Green : C.Red;
             bName0.Text = "1:  " + Pl.Name(0); bName1.Text = "2:  " + Pl.Name(1);
         }
         void Slider(Canvas2D c, Box tr, float v, Col col, string label)
@@ -71,8 +71,8 @@ namespace GlamourGames
             Slider(c, MusTrack, Sfx.MusicVol, C.Cyan, "Lautstärke");
             Gfx.Text(c, "EFFEKTE", 300, 388, 30, C.Gold, Al.L, true, 6, true);
             Slider(c, SfxTrack, Sfx.SfxVol, C.Gold, "Lautstärke");
-            Gfx.Text(c, "SPIELERNAMEN  (zum Ändern anklicken)", 300, 524, 30, C.Pink, Al.L, true, 6, true);
-            Gfx.Text(c, "ANZEIGE  (auch mit F11)", 300, 696, 30, C.Green, Al.L, true, 6, true);
+            Gfx.Text(c, Platform.Pick("SPIELERNAMEN  (zum Ändern anklicken)", "SPIELERNAMEN  (zum Ändern antippen)"), 300, 524, 30, C.Pink, Al.L, true, 6, true);
+            Gfx.Text(c, Platform.Pick("ANZEIGE  (auch mit F11)", "FEEDBACK"), 300, 696, 30, C.Green, Al.L, true, 6, true);
             Gfx.Text(c, $"Glamour Games v{App.Version}  -  {App.Credit}", 800, 106, 20, C.Dim, Al.C, false);
         }
     }

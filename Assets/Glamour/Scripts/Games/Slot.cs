@@ -213,7 +213,28 @@ namespace GlamourGames
         int NLines { get => lnP[Pi]; set => lnP[Pi] = value; }
         void Store() { if (!duel) Save.Set("slot_cents", soloCredits); }
         static long LoadCents() => long.TryParse(Save.Str("slot_cents", "10000"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 10000;
-        bool CpuTurn => duel && duelLive && !duelOver && turn == 1;
+        bool CpuTurn => duel && duelLive && !duelOver && turn == 1 && !Remote;
+        // Bluetooth-Duell: gemeinsamer Zufall (Startwert vom Host) -> gleiche Walzen-, Karten- und Leiterergebnisse auf beiden
+        // Geraeten; uebertragen werden nur die Aktionen des Spielers am Zug (auf Platz 2 sitzt der Mitspieler)
+        Random slotRnd = Rng.Shared; int duels; Action netDuel;
+        bool LocalNet => Remote && duel && turn == 0;
+        public override void NetRecv(string kind, string[] a) { if (kind == "spin" || kind == "take" || kind == "guess" || kind == "ladder" || kind == "half" || kind == "mode") NetDo(kind, a, 0); else base.NetRecv(kind, a); }
+        void NetDo(string kind, string[] a, float waited)
+        {
+            if (!Remote || !duel || duelOver) return;
+            bool idle = turn == 1 && turnReady && !spinning && !Co.Busy && !g.Busy && overlay == null;
+            bool ready = kind == "mode" ? turn == 1 : kind == "spin" ? idle && !g.Active : idle && g.Active;
+            if (!ready) { if (waited < 20) { int g0 = gen; Tm.After(.1f, () => { if (g0 == gen) NetDo(kind, a, waited + .1f); }); } return; }
+            switch (kind)
+            {
+                case "spin": LbIdx = Math.Clamp(Link.Int(a[0]), 0, LineBets.Length - 1); NLines = Math.Clamp(Link.Int(a[1]), 1, 10); Co.Start(SpinCo()); break;
+                case "take": Collect(false); break;
+                case "guess": Guess(a[0] == "1"); break;
+                case "ladder": LadderRisk(); break;
+                case "half": Half(); break;
+                case "mode": SetMode((GambleMode)Link.Int(a[0])); break;
+            }
+        }
         /// <summary>Darf der Mensch gerade bedienen? (Solo immer; Duell nur im eigenen Zug.)</summary>
         bool HumanOk => !duel || (duelLive && turnReady && !duelOver && turn == 0);
         int Round => Math.Min(DuelRounds, turnsDone / 2 + 1);
@@ -222,7 +243,9 @@ namespace GlamourGames
         int TurnsLeft(int p, int from) { int n = 0; for (int t = from; t < DuelRounds * 2; t++) if ((firstP + t) % 2 == p) n++; return n; }
 
         bool spinning, inFree; int freeSpins; string fsSym; long fsSum, lastWin;
-        readonly float[] pos = new float[5], rs = new float[5], re = new float[5], rt = new float[5], rd = new float[5], last = new float[5], bump = new float[5]; readonly bool[] moving = new bool[5];
+        readonly float[] pos = new float[5], re = new float[5], last = new float[5]; readonly bool[] moving = new bool[5];
+        // Walzen als Trommeln mit Motor, Bremse und Rastfeder (siehe Drum)
+        readonly Drum[] drums = Enumerable.Range(0, 5).Select(_ => new Drum()).ToArray();
         string[][] grid = new string[5][]; string msg = ""; List<(int li, string sym, int n, long win)> wins = new List<(int, string, int, long)>(); int showLine = -2; float lineT, prevT; List<int> expReels = new List<int>(); float expT = 99; string expSym;
         (string title, string sub, string img)? overlay; float ovT;
         enum GambleMode { Cards, Ladder }
@@ -241,7 +264,7 @@ namespace GlamourGames
         public override void Enter()
         {
             base.Enter(); soloCredits = LoadCents();
-            for (int r = 0; r < 5; r++) { pos[r] = last[r] = Rng.I(Strips[r].Length); bump[r] = 9; }
+            for (int r = 0; r < 5; r++) { pos[r] = last[r] = Rng.I(Strips[r].Length); drums[r].Snap(pos[r]); }
             SetGrid();
             bSpin = Ui.Add(new Button(732, 672, 136, 136, "SPIN", C.Gold, () => Spin(), 34) { Round = true });
             bBetM = Ui.Add(new Button(520, 725, 60, 54, "-", C.Purple, () => ChangeBet(-1), 34)); bBetP = Ui.Add(new Button(600, 725, 60, 54, "+", C.Purple, () => ChangeBet(1), 34));
@@ -250,16 +273,17 @@ namespace GlamourGames
             bAuto = Ui.Add(new Button(1166, 725, 124, 54, "AUTO", C.Cyan, AutoToggle, 20));
             bRefill = Ui.Add(new Button(300, 730, 180, 56, "+100 € Spielgeld", C.Green, () => { if (duel) return; soloCredits += 10000; Store(); Sfx.Play(S.Coin); msg = "Spielgeld aufgefüllt"; }, 20) { Visible = false });
 
-            bTabCards = Ui.Add(new Button(1205, 116, 170, 36, "♠ KARTEN", C.Purple, () => { if (!HumanOk) return; SetMode(GambleMode.Cards); gModeHuman = gMode; Sfx.Play(S.Chip); }, 20) { Visible = false });
-            bTabLadder = Ui.Add(new Button(1390, 116, 170, 36, "🪜 LEITER", C.Gold, () => { if (!HumanOk) return; SetMode(GambleMode.Ladder); gModeHuman = gMode; Sfx.Play(S.Chip); }, 20) { Visible = false });
-            bRed = Ui.Add(new Button(1205, 442, 170, 52, "ROT", C.Red, () => { if (HumanOk) Guess(true); }, 28) { Visible = false });
-            bBlack = Ui.Add(new Button(1390, 442, 170, 52, "SCHWARZ", new Col(70, 70, 90), () => { if (HumanOk) Guess(false); }, 26) { Visible = false });
-            bLadderRisk = Ui.Add(new Button(1205, 442, 355, 52, "⬆ RISIKO (1:1)", C.Orange, () => { if (HumanOk) LadderRisk(); }, 24) { Visible = false });
-            bHalf = Ui.Add(new Button(1205, 506, 170, 48, "½ TEILEN", C.Cyan, () => { if (HumanOk) Half(); }, 22) { Visible = false });
-            bTake = Ui.Add(new Button(1390, 506, 170, 48, "NEHMEN", C.Green, () => { if (HumanOk) Collect(false); }, 24) { Visible = false });
+            bTabCards = Ui.Add(new Button(1205, 116, 170, 36, "♠ KARTEN", C.Purple, () => { if (!HumanOk) return; if (LocalNet) Net("mode", (int)GambleMode.Cards); SetMode(GambleMode.Cards); gModeHuman = gMode; Sfx.Play(S.Chip); }, 20) { Visible = false });
+            bTabLadder = Ui.Add(new Button(1390, 116, 170, 36, "🪜 LEITER", C.Gold, () => { if (!HumanOk) return; if (LocalNet) Net("mode", (int)GambleMode.Ladder); SetMode(GambleMode.Ladder); gModeHuman = gMode; Sfx.Play(S.Chip); }, 20) { Visible = false });
+            bRed = Ui.Add(new Button(1205, 442, 170, 52, "ROT", C.Red, () => { if (HumanOk) LocalGuess(true); }, 28) { Visible = false });
+            bBlack = Ui.Add(new Button(1390, 442, 170, 52, "SCHWARZ", new Col(70, 70, 90), () => { if (HumanOk) LocalGuess(false); }, 26) { Visible = false });
+            bLadderRisk = Ui.Add(new Button(1205, 442, 355, 52, "⬆ RISIKO (1:1)", C.Orange, () => { if (HumanOk) LocalLadder(); }, 24) { Visible = false });
+            bHalf = Ui.Add(new Button(1205, 506, 170, 48, "½ TEILEN", C.Cyan, () => { if (HumanOk) { if (LocalNet && g.Active && !g.Busy) Net("half"); Half(); } }, 22) { Visible = false });
+            bTake = Ui.Add(new Button(1390, 506, 170, 48, "NEHMEN", C.Green, () => { if (HumanOk) LocalTake(); }, 24) { Visible = false });
             // Gegnerwahl: "Solo" statt "2 Spieler" (AddSwitch reicht humanSub nicht durch -> Klick lokal ersetzt)
+            netDuel = Shared("duel", StartMode);
             var sw = Opponents.AddSwitch(this, OppKey, 30, 596, 255, 62, StartMode, "Solo");
-            sw.Click = () => Opponents.Pick(this, OppKey, o => { Opp = o; StartMode(); }, "Solo", "allein spielen");
+            sw.Click = () => { if (Remote) { App.Toast("Bluetooth-Duell - Trennen im Menü"); return; } Opponents.Pick(this, OppKey, o => { Opp = o; StartMode(); }, "Solo", "allein spielen"); };
             StartMode();
             Opponents.Pick(this, OppKey, o => StartMode(), "Solo", "allein spielen");
         }
@@ -268,12 +292,12 @@ namespace GlamourGames
         {
             gen++; Co.Clear(); overlay = null; autoOn = false; g.Busy = false; EndGamble(); g.Hist.Clear(); inFree = false; freeSpins = 0; fsSym = null; fsSum = 0;
             spinning = false; fastStopping = false; wins.Clear(); showLine = -2; expReels.Clear(); expT = 99; lastWin = 0; cpuPlan = false;
-            for (int r = 0; r < 5; r++) if (moving[r]) { moving[r] = false; pos[r] = re[r]; bump[r] = 0; }
+            for (int r = 0; r < 5; r++) if (moving[r] || drums[r].Settling) { moving[r] = false; pos[r] = re[r]; drums[r].Snap(re[r]); }
             SetGrid();
-            duel = VsCpu; duelLive = duelOver = turnLive = turnReady = false; gMode = gModeHuman;
-            if (!duel) { soloCredits = LoadCents(); msg = "Viel Glück! Leertaste = SPIN / STOPP"; return; }
+            duel = VsCpu || Remote; slotRnd = Remote ? new Random(Link.Seed * 17 + duels++) : Rng.Shared; duelLive = duelOver = turnLive = turnReady = false; gMode = gModeHuman;
+            if (!duel) { soloCredits = LoadCents(); msg = Platform.Pick("Viel Glück! Leertaste = SPIN / STOPP", "Viel Glück! SPIN antippen = drehen / stoppen"); return; }
             dCred[0] = dCred[1] = DuelStart; lbP[1] = 3; lnP[1] = 10; turnsDone = 0; turn = 0; lastBetP[0] = lastBetP[1] = 50;
-            msg = $"Duell gegen den Computer ({Opponents.Label(Opp)}) - {DuelRounds} Runden";
+            msg = Remote ? $"Duell gegen {PName(1)} - {DuelRounds} Runden" : $"Duell gegen den Computer ({Opponents.Label(Opp)}) - {DuelRounds} Runden";
             int g0 = gen;
             CoinToss.Start(this, first => { if (g0 != gen) return; firstP = first; turn = first; duelLive = true; StartTurn(); });
         }
@@ -302,7 +326,7 @@ namespace GlamourGames
             Tm.After(a != b ? 3f : 1.2f, () =>
             {
                 if (g0 != gen) return;
-                Result(msg, $"{n0} {Eu(a)}  :  {Eu(b)} {n1}", a > b ? C.Gold : b > a ? C.Red : C.Cyan, lines, ("Neues Duell", C.Green, StartMode), ("Menü", C.Purple, () => App.Go(new Menu())));
+                Result(msg, $"{n0} {Eu(a)}  :  {Eu(b)} {n1}", a > b ? C.Gold : b > a ? C.Red : C.Cyan, lines, ("Neues Duell", C.Green, netDuel), ("Menü", C.Purple, () => App.Go(new Menu())));
             });
         }
         void SetMode(GambleMode m)
@@ -352,7 +376,7 @@ namespace GlamourGames
             }
         }
 
-        void SetGrid() { for (int r = 0; r < 5; r++) grid[r] = Enumerable.Range(0, 3).Select(k => Sym(r, (int)MathF.Floor(pos[r]) + k)).ToArray(); }
+        void SetGrid() { for (int r = 0; r < 5; r++) grid[r] = Enumerable.Range(0, 3).Select(k => Sym(r, (int)MathF.Round(pos[r]) + k)).ToArray(); }
         static string Sym(int r, int i) => SlotMath.Sym(r, i);
         void ChangeBet(int d) { if (!HumanOk || spinning || inFree || g.Active) return; LbIdx = Math.Clamp(LbIdx + d, 0, LineBets.Length - 1); Sfx.Play(S.Chip); }
         void ChangeLines(int d) { if (!HumanOk || spinning || inFree || g.Active) return; NLines = Math.Clamp(NLines + d, 1, 10); prevT = 1.6f; Sfx.Play(S.Chip); }
@@ -382,7 +406,8 @@ namespace GlamourGames
             if (overlay != null) { CloseOv(); return; }
             if (spinning) { FastStop(); return; }
             if (Co.Busy) return;
-            if (g.Active) { if (g.Busy) return; Collect(true); if (duel) return; }   // im Duell beendet NEHMEN den Zug
+            if (g.Active) { if (g.Busy) return; if (LocalNet) Net("take"); Collect(true); if (duel) return; }   // im Duell beendet NEHMEN den Zug
+            if (LocalNet) Net("spin", LbIdx, NLines);
             Co.Start(SpinCo());
         }
 
@@ -394,8 +419,8 @@ namespace GlamourGames
             {
                 if (!moving[r]) continue;
                 int L = Strips[r].Length; float cur = pos[r]; float curMod = ((cur % L) + L) % L; float dist = curMod - stops[r];
-                while (dist < 1.5f) dist += L;
-                rs[r] = cur; re[r] = cur - dist; rt[r] = 0; rd[r] = 0.06f + r * 0.035f;
+                float need = Math.Max(1.5f, drums[r].V * drums[r].V / (2 * 650) + .3f); while (dist < need) dist += L;
+                re[r] = cur - dist; drums[r].Brake(re[r]);
             }
             Sfx.Play(S.Stop, .7f, 1.2f);
             msg = "Schnellstopp!";
@@ -415,12 +440,12 @@ namespace GlamourGames
             Sfx.Play(S.Spin);
 
             // Stopps rein zufaellig und unabhaengig (Casino-RNG)
-            stops = SlotMath.RandomStops(Rng.Shared);
+            stops = SlotMath.RandomStops(slotRnd);
 
             for (int r = 0; r < 5; r++)
             {
                 int L = Strips[r].Length; float st = pos[r]; float minTravel = L * (2 + r * .6f); int e = stops[r] + L * (int)MathF.Floor((st - minTravel - stops[r]) / L);
-                rs[r] = st; re[r] = e; rt[r] = 0; rd[r] = .9f + r * .3f; moving[r] = true;
+                re[r] = e; drums[r].Pos = st; drums[r].Spin(e, .9f + r * .3f); moving[r] = true;
             }
             yield return (Func<bool>)(() => !moving.Any(m => m));
             spinning = false; fastStopping = false;
@@ -448,7 +473,7 @@ namespace GlamourGames
             }
             if (books >= 3)
             {
-                fsSym = Regular[Rng.I(Regular.Length)]; inFree = true; freeSpins = 10; fsSum = win;
+                fsSym = Regular[slotRnd.Next(Regular.Length)]; inFree = true; freeSpins = 10; fsSum = win;
                 yield return Overlay("10 FREISPIELE!", $"Sondersymbol: {Names[fsSym]}", fsSym, 3.2f); yield return .4f; Co.Start(SpinCo()); yield break;
             }
             if (win > 0) { msg = $"GEWINN: {Eu(win)} - Risiko oder Nehmen"; StartGamble(win); } else msg = "Leider kein Gewinn - nochmal!";
@@ -482,7 +507,7 @@ namespace GlamourGames
         bool CanLadderStep => g.Active && !g.Busy && g.Amount > 0 && ladderStep < 11;
         void Guess(bool red)
         {
-            if (!CanDouble) return; g.Busy = true; var suits = new[] { 1, 2, 0, 3 }; g.Suit = suits[Rng.I(4)]; g.Rank = CardArt.Ranks[Rng.I(13)]; g.Flip.Target = 1; Sfx.Play(S.Flip); int g0 = gen;
+            if (!CanDouble) return; g.Busy = true; var suits = new[] { 1, 2, 0, 3 }; g.Suit = suits[slotRnd.Next(4)]; g.Rank = CardArt.Ranks[slotRnd.Next(13)]; g.Flip.Target = 1; Sfx.Play(S.Flip); int g0 = gen;
             Tm.After(.7f, () =>
             {
                 if (g0 != gen) return;
@@ -504,7 +529,7 @@ namespace GlamourGames
             Tm.After(0.35f, () =>
             {
                 if (g0 != gen || !g.Active) return;
-                bool up = Rng.I(2) == 0;
+                bool up = slotRnd.Next(2) == 0;
                 if (up)
                 {
                     ladderStep = Math.Min(11, ladderStep + 1); g.Amount = LadderVal(ladderStep); lastWin = g.Amount; Sfx.Play(S.Match);
@@ -533,6 +558,9 @@ namespace GlamourGames
             });
         }
 
+        void LocalGuess(bool red) { if (LocalNet && CanDouble) Net("guess", red ? 1 : 0); Guess(red); }
+        void LocalLadder() { if (LocalNet && CanLadderStep) Net("ladder"); LadderRisk(); }
+        void LocalTake() { if (LocalNet && g.Active && !g.Busy) Net("take"); Collect(false); }
         void Half()
         {
             if (!g.Active || g.Busy || g.Amount < 2 || ladderStep <= 1) return;
@@ -556,7 +584,7 @@ namespace GlamourGames
             if (k == Key.Space || k == Key.Enter)
             {
                 if (spinning) FastStop();
-                else if (g.Active) { if (gMode == GambleMode.Ladder) LadderRisk(); else Guess(true); }
+                else if (g.Active) { if (gMode == GambleMode.Ladder) LocalLadder(); else LocalGuess(true); }
                 else Spin();
             }
             else if (k == Key.Up) ChangeBet(1);
@@ -571,11 +599,11 @@ namespace GlamourGames
             ovT += dt; expT += dt; lineT += dt; prevT = Math.Max(0, prevT - dt); g.Flip.Update(dt);
             for (int r = 0; r < 5; r++)
             {
-                last[r] = pos[r]; bump[r] += dt;
-                if (moving[r])
+                last[r] = pos[r];
+                if (moving[r] || drums[r].Settling)
                 {
-                    rt[r] += dt; float p = Ease.Clamp(rt[r] / rd[r]); pos[r] = rs[r] + (re[r] - rs[r]) * (1 - MathF.Pow(1 - p, 3));
-                    if (p >= 1) { moving[r] = false; pos[r] = re[r]; bump[r] = 0; Sfx.Play(S.Stop, .5f, 1 + r * .05f); float x = RX + r * (CW + GP) + CW / 2, y = RY + 1.5f * (CW + GP); Fx.Spark(x, y + 60, C.Gold, 5, 150); }
+                    bool hit = drums[r].Update(dt); pos[r] = drums[r].Pos;
+                    if (hit && moving[r]) { moving[r] = false; Sfx.Play(S.Stop, .5f, 1 + r * .05f); float x = RX + r * (CW + GP) + CW / 2, y = RY + 1.5f * (CW + GP); Fx.Spark(x, y + 60, C.Gold, 5, 150); }
                 }
             }
             bool act = !spinning && !Co.Busy && overlay == null;
@@ -639,17 +667,16 @@ namespace GlamourGames
             {
                 var col = Gfx.R(RX + r * (CW + GP) - 2, RY - 4, CW + 4, 3 * CW + 2 * GP + 8); c.Save(); c.ClipRoundRect(col, 16);
                 Gfx.Rect(c, col, 14, new Col(20, 8, 2)); float v = Math.Abs(pos[r] - last[r]) * (CW + GP) / Math.Max(.001f, .016f); float fl = MathF.Floor(pos[r]), fr2 = pos[r] - fl;
-                float off = bump[r] < 1 ? MathF.Sin(bump[r] * 26) * 9 * MathF.Exp(-bump[r] * 9) : 0;
-                c.Save(); c.Translate(0, off);
+                c.Save();
                 for (int k = -1; k <= 3; k++)
                 {
                     var cr = Cell(r, 0); float y = RY + (k - fr2) * (CW + GP); var rect = Gfx.R(cr.Left, y, CW, CW); string sym = Sym(r, (int)fl + k); bool hl = !moving[r] && !spinning && k >= 0 && k < 3 && HL.Contains((r, k));
                     bool dimIt = !moving[r] && !spinning && HL.Count > 0 && !hl && k >= 0 && k < 3;
                     // Bewegungsunschaerfe: versetzte, durchscheinende Kopien (wie Original per SaveLayer-Alpha)
                     // Zylinder-Projektion der Walze: Symbole wandern auf einer Trommel (oben/unten gestaucht)
-                    float drumR = col.Height * .62f, th = (y + CW / 2f - col.MidY - off) / drumR;
+                    float drumR = col.Height * .62f, th = (y + CW / 2f - col.MidY) / drumR;
                     if (Math.Abs(th) > 1.5f) continue;
-                    c.Save(); c.Translate(rect.MidX, col.MidY - off + drumR * MathF.Sin(th)); c.Scale(1, MathF.Cos(th)); c.Translate(-rect.MidX, -(y + CW / 2f));
+                    c.Save(); c.Translate(rect.MidX, col.MidY + drumR * MathF.Sin(th)); c.Scale(1, MathF.Cos(th)); c.Translate(-rect.MidX, -(y + CW / 2f));
                     if (v > 1800) { for (int gI = 1; gI <= 3; gI++) { var gr2 = Gfx.R(cr.Left, y - gI * v * .006f, CW, CW); c.SaveLayer(90f / gI / 255f); DrawCell(c, gr2, sym); c.Restore(); } }
                     DrawCell(c, rect, sym, hl ? 1.05f + .04f * pu : 1, dimIt ? .5f : 0, hl, pu);
                     c.Restore();
@@ -701,7 +728,7 @@ namespace GlamourGames
             for (int i = 0; i < 12; i++) { using var ray = new Path2D(); float an = i * MathF.PI / 6, w = .09f; ray.MoveTo(0, -20); ray.LineTo(MathF.Cos(an - w) * 420, -20 + MathF.Sin(an - w) * 420); ray.LineTo(MathF.Cos(an + w) * 420, -20 + MathF.Sin(an + w) * 420); ray.Close(); var rp = Gfx.Fill(Col.White); rp.Shader = Grad.Radial(0, -20, 420, C.Gold.A(.22f * a), C.Gold.A(0)); rp.Additive = true; rp.Glow = 1.4f; c.DrawPath(ray, rp); }
             c.Restore();
             Gfx.Text(c, t, 0, -250, 84, C.Gold, Al.C, true, 24, true); c.Save(); c.RotateDegrees(MathF.Sin(ovT * 2) * 4); Gfx.Image(c, Assets.Img("slot_" + img), Gfx.Ctr(0, -20, 240, 240)); c.Restore();
-            Gfx.Text(c, s, 0, 150, 40, Col.White, Al.C, true, 6); Gfx.Text(c, CpuTurn ? $"{PName(1)} spielt ..." : "Klicken oder Leertaste zum Fortfahren", 0, 215, 22, C.Dim, Al.C, false); c.Restore();
+            Gfx.Text(c, s, 0, 150, 40, Col.White, Al.C, true, 6); Gfx.Text(c, CpuTurn ? $"{PName(1)} spielt ..." : Platform.Pick("Klicken oder Leertaste zum Fortfahren", "Antippen zum Fortfahren"), 0, 215, 22, C.Dim, Al.C, false); c.Restore();
         }
         void DrawPaytable(Canvas2D c)
         {

@@ -2,7 +2,7 @@
 // "Glamour/Shape" und "Glamour/Backdrop" sowie Bloom/Tonemapping nachbildet. Fuer Screenshots, visuelle Tests
 // und schnelle Iteration in Umgebungen ohne Unity-Editor (z. B. CI).
 //
-//   dotnet run -- --scene=menu|options|0..9 --t=2.5 --out=bild.png [--script="c,800,450@1.2;k,Space@2"] [--scale=1]
+//   dotnet run -- --scene=menu|options|0..9 --t=2.5 --out=bild.png [--script="c,800,450@1.2;k,Space@2"] [--scale=1] [--skip=2 (Gegnerwahl+Muenzwurf ueberspringen)]
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -50,7 +50,7 @@ namespace GlamourGames
         public static int Main(string[] args)
         {
             CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
-            string scene = "menu", outp = "preview.png", script = ""; float T = 2.5f;
+            string scene = "menu", outp = "preview.png", script = "", net = null; float T = 2.5f; bool realtime = false;
             foreach (var a in args)
             {
                 if (a.StartsWith("--scene=")) scene = a.Substring(8);
@@ -58,6 +58,9 @@ namespace GlamourGames
                 else if (a.StartsWith("--out=")) outp = a.Substring(6);
                 else if (a.StartsWith("--script=")) script = a.Substring(9);
                 else if (a.StartsWith("--scale=")) S = float.Parse(a.Substring(8), CultureInfo.InvariantCulture);
+                else if (a.StartsWith("--skip=")) Opponents.Skip = int.Parse(a.Substring(7));
+                else if (a.StartsWith("--net=")) net = a.Substring(6);
+                else if (a == "--realtime") realtime = true;
             }
             W = (int)(1600 * S); H = (int)(900 * S);
             string root = FindRoot();
@@ -66,6 +69,8 @@ namespace GlamourGames
             font = File.ReadAllBytes(Path.Combine(cache, "font.raw")); img = File.ReadAllBytes(Path.Combine(cache, "img.raw"));
             FontAtlas.Load(); Assets.Load();
 
+            // Mehrspieler-Test: TCP statt Bluetooth, Host/Mitspieler verbinden sich vor dem Start
+            if (net != null) { var nv = net.Split(':'); Link.T = new TcpBt(int.Parse(nv[1])); if (nv[0] == "host") Link.Host(); else Link.Join("127.0.0.1"); realtime = true; }
             Scene cur = scene == "menu" ? new Menu() : scene == "options" ? new Options() : Registry.All[int.Parse(scene)].Make();
             App.Current = cur; cur.Enter();
             var events = new List<(float t, string a, string p1, string p2)>();
@@ -96,7 +101,10 @@ namespace GlamourGames
                     catch (Exception x) { Console.WriteLine("event error: " + x); }
                 }
                 if (App.Pending != null) { cur.Leave(); cur = App.Pending; App.Pending = null; App.Current = cur; cur.Enter(); }
+                if (net != null) Link.Update();
                 cur.BaseUpdate(dt);
+                if (net != null) { canvas.Begin(); cur.BaseDraw(canvas); }   // Zeichen-Rueckrufe (z. B. Muenzwurf) laufen jeden Frame
+                if (realtime) System.Threading.Thread.Sleep(16);
                 App.FlashA = Math.Max(0, App.FlashA - dt * 1.8f); App.ShakeA = Math.Max(0, App.ShakeA - dt * 40); App.ToastT -= dt;
                 t += dt;
             }

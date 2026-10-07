@@ -36,7 +36,19 @@ namespace GlamourGames
         const float TW = 270, TH = 300, G = 26, X0 = (1600 - (5 * TW + 4 * G)) / 2, Y0 = 200;
         static Box Tile(int i) => Gfx.R(X0 + (i % 5) * (TW + G), Y0 + (i / 5) * (TH + G), TW, TH);
         public override bool WantsHand => over >= 0;
-        public override void Enter() { base.Enter(); Sfx.Play(S.Turn, .4f); Ui.Add(new Button { R = Gfx.R(1476, 24, 96, 96), Col = C.Cyan, Round = true, Click = () => App.Go(new Options()), Custom = (c, r, h) => { Gfx.Gear(c, r.MidX, r.MidY, 30, Col.White); return true; } }); }
+        public override void Enter()
+        {
+            base.Enter(); Sfx.Play(S.Turn, .4f); Ui.Add(new Button { R = Gfx.R(1476, 24, 96, 96), Col = C.Cyan, Round = true, Click = () => App.Go(new Options()), Custom = (c, r, h) => { Gfx.Gear(c, r.MidX, r.MidY, 30, Col.White); return true; } });
+            // Bluetooth-Mehrspieler (Symbol oben links)
+            Ui.Add(new Button { R = Gfx.R(28, 24, 96, 96), Col = Link.Connected ? C.Green : C.Blue, Round = true, Click = () => App.Go(new BtLobby()), Custom = (c, r, h) => { BtIcon(c, r.MidX, r.MidY, 30, Col.White); return true; } });
+        }
+        /// <summary>Bluetooth-Rune aus Linien.</summary>
+        static void BtIcon(Canvas2D c, float x, float y, float s, Col col)
+        {
+            var p = Gfx.Line(col, s * .14f); p.Glow = 1.3f; float h = s * .9f, w = s * .45f;
+            c.DrawLine(x, y - h, x, y + h, p); c.DrawLine(x, y - h, x + w, y - h / 2, p); c.DrawLine(x + w, y - h / 2, x - w, y + h / 2, p);
+            c.DrawLine(x, y + h, x + w, y + h / 2, p); c.DrawLine(x + w, y + h / 2, x - w, y - h / 2, p);
+        }
         public override void Update(float dt)
         {
             intro += dt;
@@ -50,7 +62,11 @@ namespace GlamourGames
         public override void MouseMove(float x, float y) { over = -1; for (int i = 0; i < 10; i++) if (Tile(i).Contains(x, y)) over = i; }
         public override void MouseDown(float x, float y) { }
         public override void MouseUp(float x, float y) { if (over >= 0) Launch(over); }
-        void Launch(int i) { Sfx.Play(S.Click); App.Go(Registry.All[i].Make()); }
+        void Launch(int i)
+        {
+            if (Link.Connected && !Link.IsHost) { App.Toast($"{Link.PeerName} wählt das Spiel"); return; }
+            Sfx.Play(S.Click); if (Link.Connected) Link.Go(i); App.Go(Registry.All[i].Make());
+        }
         public override void KeyDown(Key k)
         {
             int n = k >= Key.Number1 && k <= Key.Number9 ? k - Key.Number1 : k == Key.Number0 ? 9 : -1; if (n >= 0) Launch(n);
@@ -67,7 +83,8 @@ namespace GlamourGames
                 p.Shader = Grad.Linear(-w / 2 + sw, -40, w / 2 + sw, 40, new Col(255, 250, 200), C.Orange); Gfx.TextPaint(c, t, 0, 0, 96, p, Al.C, true, true);
             }
             c.Restore();
-            Gfx.Text(c, "10 Spiele  ·  zu zweit oder gegen den Computer  ·  Zifferntasten starten direkt", 800, 168, 22, C.Dim, Al.C, false);
+            if (Link.Connected) Gfx.Text(c, Link.IsHost ? $"Bluetooth: verbunden mit {Link.PeerName}  ·  wähle ein Spiel, {Link.PeerName} spielt an seinem Gerät mit" : $"Bluetooth: verbunden mit {Link.PeerName}  ·  {Link.PeerName} wählt das Spiel ...", 800, 168, 22, C.Green.Light(.4f), Al.C, true);
+            else Gfx.Text(c, Platform.Pick("10 Spiele  ·  zu zweit, per Bluetooth oder gegen den Computer  ·  Zifferntasten starten direkt", "10 Spiele  ·  zu zweit, per Bluetooth oder gegen den Computer  ·  Kachel antippen zum Starten"), 800, 168, 22, C.Dim, Al.C, false);
             for (int i = 0; i < 10; i++)
             {
                 float a = Ease.OutCubic((intro - .15f - i * .05f) / .45f); if (a <= 0) continue;

@@ -12,7 +12,12 @@ namespace GlamourGames
         public override Col Acc1 => C.Blue; public override Col Acc2 => C.Magenta;
         public override string OppKey => "c4";
         const int Rows = 6, Cols = 7; const float CS = 104, BX = 800 - CS * 3.5f, BY = 168;
-        class Disc { public int Col, Row, P; public float Y, Vy; public bool Settled, Landed_; public float Pulse; }
+        // Massstab: Feld 104 px = 3,7 cm (echtes Brett) -> echte Fallbeschleunigung; Kunststoff auf Kunststoff federt wenig
+        const float PxPerM = 2800, Gc = Phys.G * PxPerM, Restit = .3f;
+        class Disc { public int Col, Row, P; public float Y, Vy; public bool Settled, Landed_; public float Pulse, HitT = -9, HitV, PushT = -9, PushV, Side; }
+        readonly List<Body> outgoing = new List<Body>();
+        // Auffangrampe unter dem Brett: herausfallende Steine prallen auf, rollen die Schraege hinab und aus dem Bild
+        const float RampX0 = BX - 60, RampY0 = BY + Rows * CS + 48, RampX1 = BX + Cols * CS + 420, RampY1 = RampY0 + 70;
         int[] b = new int[42]; readonly List<Disc> discs = new List<Disc>(); int cur = 1, over; int[] score = new int[2]; List<int> winCells; float winT; bool busy; int hoverCol = -1; string status = "";
         static float CX(int c) => BX + c * CS + CS / 2; static float CY(int r) => BY + r * CS + CS / 2;
         // Computer-Gegner: Suche laeuft im Hintergrund (Task), Ergebnis wird in Update abgeholt
@@ -20,20 +25,37 @@ namespace GlamourGames
         public override void Enter()
         {
             base.Enter();
+            netNext = Shared("next", NextRound); netNew = Shared("newmatch", NewMatch);
             Opponents.AddSwitch(this, OppKey, 40, 585, 260, 70, NewMatch);
-            Ui.Add(new Button(40, 700, 260, 62, "Neue Runde", C.Green, NextRound, 24)); Ui.Add(new Button(40, 780, 260, 62, "Punkte zurück", C.Purple, NewMatch, 22));
+            Ui.Add(new Button(40, 700, 260, 62, "Neue Runde", C.Green, () => netNext(), 24)); Ui.Add(new Button(40, 780, 260, 62, "Punkte zurück", C.Purple, () => netNew(), 22));
             Opponents.Pick(this, OppKey, o => NewMatch());
         }
         int starter = 1;
+        /// <summary>Bodenklappe oeffnen: alle Steine fallen gleichzeitig frei aus dem Brett (leicht seitlich verkantet).</summary>
+        void ReleaseDiscs()
+        {
+            if (discs.Count == 0) return;
+            foreach (var d in discs) outgoing.Add(new Body { X = CX(d.Col), Y = d.Y, R = CS * .4f, Vx = (Rng.F() - .5f) * 60, Gravity = Gc, E = .35f, Mu = .5f, Tag = d.P }.Ramp(RampX0, RampY0, RampX1, RampY1));
+            Sfx.Play(S.Drop, .6f, .7f); Sfx.Play(S.Creak, .4f, 1.4f); Log.I($"bodenklappe: {discs.Count} Steine");
+        }
         void NextRound() { starter = 3 - starter; Reset(); }
         void NewMatch() { score = new int[2]; starter = 1; tossing = true; Reset(); CoinToss.Start(this, f => { tossing = false; starter = f + 1; Reset(); }); }
         void Reset()
         {
-            gen++; CancelCpuThink(); b = new int[42]; discs.Clear(); cur = starter; over = 0; winCells = null; busy = false; winT = 0; status = $"{PName(cur - 1)} ist dran"; Modal = null; parade = null; resShown = false;
+            gen++; CancelCpuThink(); b = new int[42]; ReleaseDiscs(); discs.Clear(); cur = starter; over = 0; winCells = null; busy = false; winT = 0; status = $"{PName(cur - 1)} ist dran"; Modal = null; parade = null; resShown = false;
             aiTask = null; cpuDue = false; cpuCol = -1; hoverCol = -1; CpuCheck();
         }
         bool CpuTurn => VsCpu && cur == 2 && over == 0 && !tossing;
-        bool Locked => CpuTurn || CpuThinking || cpuCol >= 0;
+        bool Locked => CpuTurn || CpuThinking || cpuCol >= 0 || RemoteTurn;
+        // Bluetooth: Platz 2 ist der Mitspieler; trifft sein Zug ein, waehrend hier noch ein Stein faellt, wird kurz gewartet
+        bool RemoteTurn => Remote && cur == 2 && over == 0 && !tossing; Action netNext, netNew;
+        public override void NetRecv(string kind, string[] a)
+        {
+            if (kind != "drop") { base.NetRecv(kind, a); return; }
+            if (over != 0) return;
+            if (busy || !RemoteTurn) { int g = gen; Tm.After(.08f, () => { if (g == gen) NetRecv(kind, a); }); return; }
+            Drop(Link.Int(a[0]));
+        }
         public override bool WantsHand => hoverCol >= 0;
         public override void MouseMove(float x, float y) { hoverCol = -1; if (over != 0 || busy || Modal != null || Locked) return; if (x > BX && x < BX + Cols * CS && y > BY - 100 && y < BY + Rows * CS + 30) hoverCol = (int)((x - BX) / CS); }
         public override void MouseUp(float x, float y) { if (parade != null && parade.T > 1.5f) { FireRes(); return; } if (Locked) return; if (hoverCol >= 0) Drop(hoverCol); }
@@ -77,11 +99,12 @@ namespace GlamourGames
         {
             if (over != 0 || busy || col < 0 || col >= Cols) return; int row = -1; for (int r = Rows - 1; r >= 0; r--) if (b[r * Cols + col] == 0) { row = r; break; }
             if (row < 0) { Sfx.Play(S.NoMatch, .5f); App.Shake(4); return; }
+            if (Remote && cur == 1) Net("drop", col);
             b[row * Cols + col] = cur; busy = true; discs.Add(new Disc { Col = col, Row = row, P = cur, Y = BY - CS, Vy = 0 }); Sfx.Play(S.Turn, .4f);
         }
         void Landed(Disc d)
         {
-            Sfx.Play(S.Drop); Fx.Spark(CX(d.Col), CY(d.Row) + CS / 2 - 8, d.P == 1 ? C.Cyan : C.Pink, 10, 180);
+            Fx.Spark(CX(d.Col), CY(d.Row) + CS / 2 - 8, d.P == 1 ? C.Cyan : C.Pink, 10, 180);
             var w = Check(d.Row, d.Col, d.P); int g = gen;
             if (w != null)
             {
@@ -93,10 +116,10 @@ namespace GlamourGames
                 {
                     if (g != gen || over != wp) return;
                     parade = new DiceParade(this, wp - 1, new[] { C.Cyan, C.Pink }, new[] { PName(0), PName(1) }, new[] { score[0], score[1] }, PKind.Disc, 1.35f);
-                    showRes = () => Result($"{PName(wp - 1)} gewinnt!", $"Stand: {score[0]} : {score[1]}", wp == 1 ? C.Cyan : C.Pink, ("Nächste Runde", C.Green, NextRound), ("Menü", C.Purple, () => App.Go(new Menu())));
+                    showRes = () => Result($"{PName(wp - 1)} gewinnt!", $"Stand: {score[0]} : {score[1]}", wp == 1 ? C.Cyan : C.Pink, ("Nächste Runde", C.Green, netNext), ("Menü", C.Purple, () => App.Go(new Menu())));
                 });
             }
-            else if (b.All(v => v != 0)) { over = 3; status = "UNENTSCHIEDEN!"; Sfx.Play(S.Lose); Tm.After(1.2f, () => { if (g == gen) Result("Unentschieden", $"Stand: {score[0]} : {score[1]}", C.Gold, ("Nochmal", C.Green, NextRound), ("Menü", C.Purple, () => App.Go(new Menu()))); }); }
+            else if (b.All(v => v != 0)) { over = 3; status = "UNENTSCHIEDEN!"; Sfx.Play(S.Lose); Tm.After(1.2f, () => { if (g == gen) Result("Unentschieden", $"Stand: {score[0]} : {score[1]}", C.Gold, ("Nochmal", C.Green, netNext), ("Menü", C.Purple, () => App.Go(new Menu()))); }); }
             else { cur = 3 - cur; status = $"{PName(cur - 1)} ist dran"; CpuCheck(); }
             busy = false;
             if (over == 0 && !Locked) MouseMove(App.MX, App.MY);
@@ -121,9 +144,21 @@ namespace GlamourGames
             {
                 var d = discs[i];
                 if (d.Settled) { d.Pulse += dt; continue; }
-                d.Vy += 3200 * dt; d.Y += d.Vy * dt; float ty = CY(d.Row);
-                if (d.Y >= ty) { d.Y = ty; if (d.Vy > 260) { d.Vy = -d.Vy * .32f; if (!d.Landed_) { d.Landed_ = true; Landed(d); } } else { d.Vy = 0; d.Settled = true; } }
+                int n = Phys.Sub(dt, out float h); float ty = CY(d.Row);
+                for (int k = 0; k < n && !d.Settled; k++)
+                {
+                    d.Vy += Gc * h; d.Y += d.Vy * h;
+                    if (d.Y < ty) continue;
+                    // Aufprall auf Stein/Boden darunter: Restitution, seitliches Klappern im Schacht, Stoss geht in die Steine darunter
+                    d.Y = ty; float v = d.Vy; d.HitT = Time; d.HitV = v; d.Side = Rng.F() < .5f ? -1 : 1;
+                    foreach (var o in discs) if (o != d && o.Col == d.Col && o.Row > d.Row) { o.PushT = Time; o.PushV = v * .35f / (o.Row - d.Row); }
+                    Impact.Play(Mat.Plastic, v / 7000f);
+                    if (v > 500) { d.Vy = -v * Restit; if (!d.Landed_) { d.Landed_ = true; Landed(d); } }
+                    else { d.Vy = 0; d.Settled = true; if (!d.Landed_) { d.Landed_ = true; Landed(d); } }
+                }
             }
+            for (int i = 0; i < outgoing.Count; i++) { outgoing[i].Update(dt); for (int j = 0; j < i; j++) Body.Collide(outgoing[j], outgoing[i]); if (outgoing[i].Impact > 200) Impact.Play(Mat.Plastic, outgoing[i].Impact / 7000f); }
+            outgoing.RemoveAll(o => o.Y > App.VY1 + CS || o.X > App.VX1 + CS);
             if (winCells != null) winT += dt;
             CpuUpdate(dt);
         }
@@ -132,7 +167,7 @@ namespace GlamourGames
         {
             W.PlayerBox(c, Gfx.R(40, 115, 260, 190), PName(0), score[0].ToString(), C.Cyan, over == 0 && cur == 1, Time, "Siege");
             W.PlayerBox(c, Gfx.R(40, 330, 260, 190), PName(1), score[1].ToString(), C.Pink, over == 0 && cur == 2, Time, "Siege");
-            Gfx.Text(c, "Spalte klicken / Tasten 1-7", 170, 550, 17, C.Dim, Al.C, false);
+            Gfx.Text(c, Platform.Pick("Spalte klicken / Tasten 1-7", "Spalte antippen"), 170, 550, 17, C.Dim, Al.C, false);
             var frame = Gfx.R(BX - 16, BY - 6, Cols * CS + 32, Rows * CS + 30);
             Gfx.Shadow(c, frame, 26, 22, .55f, 0, 18);
             // Rueckwand: dunkler Schacht, durch die Loecher sichtbar
@@ -144,7 +179,9 @@ namespace GlamourGames
                 Gfx.Disc(c, CX(hoverCol), BY - CS * .55f + MathF.Sin(Time * 6) * 4, CS * .4f, col);
             }
             if (cpuCol >= 0 && CpuTurn && !busy) DrawCpuHover(c);
-            foreach (var d in discs) DrawDisc(c, d);
+            if (outgoing.Count > 0) { var rail = Gfx.Line(new Col(140, 180, 255).A(.8f), 6); rail.Glow = 1.4f; c.DrawLine(RampX0, RampY0, RampX1, RampY1, rail); }
+            foreach (var o in outgoing) DrawDisc(c, o.X, o.Y, (int)o.Tag);
+            foreach (var d in discs) DrawDisc(c, d, Time);
             Gfx.Glow(c, frame, 26, C.Blue, 22, .5f);
             var p = Gfx.Fill(Col.White); p.Shader = Grad.Linear(frame.Left, frame.Top, frame.Right, frame.Bottom, new Col(50, 90, 255), new Col(10, 20, 100));
             c.DrawPerforated(frame, 26, BX, BY, CS, CS, Cols, Rows, CS * .4f, p);
@@ -176,12 +213,18 @@ namespace GlamourGames
             var ring = Gfx.Line(C.Pink.Light(.5f).A(.8f), 2); ring.Glow = 1.8f; c.DrawCircle(x, y, CS * .4f, ring);
             c.Restore();
         }
-        static void DrawDisc(Canvas2D c, Disc d)
+        static void DrawDisc(Canvas2D c, Disc d, float now)
         {
-            var col = d.P == 1 ? C.Cyan : C.Pink; float r = CS * .4f, x = CX(d.Col);
-            Gfx.Light(c, x, d.Y, r * 1.8f, col, .3f, 1.4f);
-            Gfx.Disc(c, x, d.Y, r, col);
-            c.DrawCircle(x, d.Y, r, Gfx.Line(col.Dark(.35f).A(.7f), 1.5f));
+            // Spiel im Schacht: Stein schwingt nach dem Aufprall seitlich aus (Spaltbreite begrenzt), Stoss von oben drueckt ihn kurz nach unten
+            float gap = CS * .5f - CS * .4f - 2, dx = Math.Clamp(Phys.Ring(d.HitV * .05f * d.Side, now - d.HitT, 7, .18f), -gap, gap), dy = Math.Max(0, Phys.Ring(d.PushV * .12f, now - d.PushT, 22, .3f));
+            DrawDisc(c, CX(d.Col) + dx, d.Y + dy, d.P);
+        }
+        static void DrawDisc(Canvas2D c, float x, float y, int p)
+        {
+            var col = p == 1 ? C.Cyan : C.Pink; float r = CS * .4f;
+            Gfx.Light(c, x, y, r * 1.8f, col, .3f, 1.4f);
+            Gfx.Disc(c, x, y, r, col);
+            c.DrawCircle(x, y, r, Gfx.Line(col.Dark(.35f).A(.7f), 1.5f));
         }
     }
 

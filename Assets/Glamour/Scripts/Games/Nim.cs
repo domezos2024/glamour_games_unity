@@ -12,8 +12,9 @@ namespace GlamourGames
         /// <summary>"Computer denkt nach" zwischen Statuszeile und Staeben (unten stehen die Stapel-Beschriftungen).</summary>
         public override Pt ThinkPos => new Pt(800, 230);
         int[] piles = { 3, 5, 7 }; int cur = 1; int[] score = new int[2]; bool over; int hp = -1, hs = -1; readonly float[][] pop = new float[3][];
-        class Fly { public float X, Y, Vx, Vy, Rot, Vr, T; public Col Col; }
-        readonly List<Fly> fly = new List<Fly>(); string status = "";
+        // genommene Staebe: Starrkoerper (Holzstab ca. 22 cm -> 1000 px/m), prallen auf dem Tisch auf, kanten, rutschen aus und verblassen
+        class Fly { public Body B; public float T, Fade; public Col Col; }
+        readonly List<Fly> fly = new List<Fly>(); const float PxPerM = 1000, FloorY = 872; string status = "";
         // Computer-Gegner: gen verhindert, dass alte Timer in eine neue Runde feuern
         int gen; bool tossing, cpuAiming;
         const float PX0 = 470, PDX = 330, BASE = 770, RW = 220, RHt = 52, GAP = 10;
@@ -23,8 +24,9 @@ namespace GlamourGames
         public override void Enter()
         {
             base.Enter();
+            netNext = Shared("next", NextRound); netNew = Shared("newmatch", NewMatch);
             Opponents.AddSwitch(this, OppKey, 40, 600, 260, 70, NewMatch);
-            Ui.Add(new Button(40, 700, 260, 62, "Neue Runde", C.Green, NextRound, 24)); Ui.Add(new Button(40, 780, 260, 62, "Punkte zurück", C.Purple, NewMatch, 22));
+            Ui.Add(new Button(40, 700, 260, 62, "Neue Runde", C.Green, () => netNext(), 24)); Ui.Add(new Button(40, 780, 260, 62, "Punkte zurück", C.Purple, () => netNew(), 22));
             Opponents.Pick(this, OppKey, o => NewMatch());
         }
         int starter = 1;
@@ -37,7 +39,10 @@ namespace GlamourGames
             CpuCheck();
         }
         bool CpuTurn => VsCpu && cur == 2 && !over && !tossing;
-        bool Locked => CpuTurn || CpuThinking || cpuAiming;
+        bool Locked => CpuTurn || CpuThinking || cpuAiming || RemoteTurn;
+        // Bluetooth: Platz 2 ist der Mitspieler am anderen Geraet
+        bool RemoteTurn => Remote && cur == 2 && !over && !tossing; Action netNext, netNew;
+        public override void NetRecv(string kind, string[] a) { if (kind == "take") { if (RemoteTurn) Take(Link.Int(a[0]), Link.Int(a[1])); } else base.NetRecv(kind, a); }
         public override bool WantsHand => hp >= 0 && !Locked;
         public override void MouseMove(float x, float y)
         {
@@ -66,26 +71,38 @@ namespace GlamourGames
         void Take(int p, int k)
         {
             if (over || p < 0 || k < 0 || k >= piles[p]) return;
+            if (Remote && cur == 1) Net("take", p, k);
             int n = piles[p] - k;
-            for (int j = k; j < piles[p]; j++) { var r = Rod(p, j); fly.Add(new Fly { X = r.MidX, Y = r.MidY, Vx = (Rng.Shared.NextSingle() - .5f) * 500, Vy = -300 - Rng.Shared.NextSingle() * 300, Vr = (Rng.Shared.NextSingle() - .5f) * 8, Col = C.Gold }); Fx.Burst(r.MidX, r.MidY, 12, new[] { C.Gold, C.Orange, C.Yellow }, 260); }
+            for (int j = k; j < piles[p]; j++)
+            {
+                var r = Rod(p, j); float side = p == 0 ? -1 : p == 2 ? 1 : (Rng.F() < .5f ? -1 : 1);
+                var b = new Body { X = r.MidX, Y = r.MidY, Hw = RW / 2, Hh = RHt / 2, Vx = side * Rng.F(180, 420), Vy = -Rng.F(500, 800), W = side * Rng.F(2, 6), Gravity = Phys.Gpx(PxPerM), E = .35f, Mu = .45f, Floor = FloorY, WallL = App.VX0 + 10, WallR = App.VX1 - 10 };
+                fly.Add(new Fly { B = b, Col = C.Gold }); Fx.Burst(r.MidX, r.MidY, 12, new[] { C.Gold, C.Orange, C.Yellow }, 260);
+            }
             piles[p] -= n; Sfx.Play(S.Take); App.Shake(4 + n); hp = hs = -1;
             if (piles.All(v => v == 0))
             {
                 over = true; score[cur - 1]++; status = $"{PName(cur - 1)} GEWINNT!"; Sfx.Play(S.Win); Celebrate(cur == 1 ? C.Cyan : C.Pink, 4, 1f, $"{PName(cur - 1)} gewinnt!"); App.Flash(C.Gold, .3f);
-                int w = cur, g = gen; Tm.After(3.4f, () => { if (g != gen) return; Result($"{PName(w - 1)} gewinnt!", $"Wer den letzten Stab nimmt, gewinnt.  Stand {score[0]} : {score[1]}", w == 1 ? C.Cyan : C.Pink, ("Nochmal", C.Green, NextRound), ("Menü", C.Purple, () => App.Go(new Menu()))); });
+                int w = cur, g = gen; Tm.After(3.4f, () => { if (g != gen) return; Result($"{PName(w - 1)} gewinnt!", $"Wer den letzten Stab nimmt, gewinnt.  Stand {score[0]} : {score[1]}", w == 1 ? C.Cyan : C.Pink, ("Nochmal", C.Green, netNext), ("Menü", C.Purple, () => App.Go(new Menu()))); });
             }
             else { cur = 3 - cur; status = $"{PName(cur - 1)} ist dran"; CpuCheck(); }
         }
         public override void Update(float dt)
         {
             for (int p = 0; p < 3; p++) for (int k = 0; k < 7; k++) pop[p][k] = Math.Min(1, pop[p][k] + dt * 3);
-            for (int i = fly.Count - 1; i >= 0; i--) { var f = fly[i]; f.T += dt; f.Vy += 1800 * dt; f.X += f.Vx * dt; f.Y += f.Vy * dt; f.Rot += f.Vr * dt; if (f.T > 1.1f) fly.RemoveAt(i); }
+            for (int i = fly.Count - 1; i >= 0; i--)
+            {
+                var f = fly[i]; f.T += dt; f.B.Update(dt);
+                if (f.B.Impact > 150) { Impact.Play(Mat.Wood, f.B.Impact / 2500f, 1.3f); Fx.Smoke(f.B.X, FloorY, 1, 10, 30, .8f); }
+                if (f.B.Resting || f.T > 3.5f) f.Fade += dt * 1.6f;
+                if (f.Fade >= 1) fly.RemoveAt(i);
+            }
         }
         public override void Draw(Canvas2D c)
         {
             W.PlayerBox(c, Gfx.R(40, 140, 260, 200), PName(0), score[0].ToString(), C.Cyan, !over && cur == 1, Time, "Siege");
             W.PlayerBox(c, Gfx.R(40, 370, 260, 200), PName(1), score[1].ToString(), C.Pink, !over && cur == 2, Time, "Siege");
-            Gfx.Text(c, "Klicke einen Stab: er und alle darüber werden genommen.", 800, 120, 26, C.Dim, Al.C, false);
+            Gfx.Text(c, Platform.Pick("Klicke einen Stab: er und alle darüber werden genommen.", "Tippe einen Stab: er und alle darüber werden genommen."), 800, 120, 26, C.Dim, Al.C, false);
             for (int p = 0; p < 3; p++)
             {
                 float x = PX(p); var plate = Gfx.Ctr(x, BASE + 30, RW + 60, 30);
@@ -116,7 +133,7 @@ namespace GlamourGames
             if (hp >= 0 && hp < 3 && hs >= 0 && hs < piles[hp]) { var r0 = Rod(hp, hs); Gfx.Text(c, $"Nehme {piles[hp] - hs}", PX(hp) + RW / 2 + 70, r0.MidY, 26, (hp >= 0 && cpuAiming ? C.Pink : C.Red).Light(.4f), Al.L, true, 8); }
             foreach (var f in fly)
             {
-                float a = 1 - Ease.Clamp(f.T / 1.1f); c.Save(); c.Translate(f.X, f.Y); c.RotateDegrees(f.Rot * 57.3f); var r = Gfx.Ctr(0, 0, RW, RHt);
+                float a = 1 - Ease.Clamp(f.Fade); c.Save(); f.B.Apply(c); var r = Gfx.Ctr(0, 0, RW, RHt);
                 Gfx.GlowFill(c, r, 22, C.Orange, 12, .4f * a); Gfx.Rod(c, r, 22, f.Col.A(a), 1, .3f); c.Restore();
             }
             Gfx.Text(c, status, 800, 172, 36, over ? C.Gold : (cur == 1 ? C.Cyan : C.Pink), Al.C, true, 8);
