@@ -13,7 +13,7 @@ namespace GlamourGames
     public sealed class App : MonoBehaviour
     {
         public const float VW = 1600, VH = 900;
-        public const string Version = "2.2.0", Credit = "erstellt von Michael Bergfeld @ DoMeZos-Ware 2026";
+        public const string Version = "1.0.0", Credit = "erstellt von Michael Bergfeld @ DoMeZos-Ware 2026";
         public static float VX0, VX1 = VW, VY0, VY1 = VH, MX, MY;
         /// <summary>Wird von PostFX (URP) gesetzt, um Bloom &amp; Co. an der Kamera einzurichten.</summary>
         public static Action<Camera> SetupPostFx;
@@ -24,7 +24,7 @@ namespace GlamourGames
 
         static App inst;
         static Scene cur, pending; static float fade = 1, flash, shake, toastT, fps, fpsAcc; static int fpsN; static Col flashCol = Col.White;
-        static string toast = ""; static bool showFps;
+        static string toast = ""; static bool showFps; static float lastBack = -10;
         public static Scene Current => cur;
 
         Camera cam; Mesh mesh, bgMesh; Material shapeMat, bgMat; GameObject canvasGo, bgGo;
@@ -67,8 +67,16 @@ namespace GlamourGames
         void Awake()
         {
             inst = this;
-            Application.targetFrameRate = -1; QualitySettings.vSyncCount = 1;
-            Application.runInBackground = true;
+            if (Platform.Touch)
+            {
+                // Mobil: 60 FPS (Akku/Waerme), kein Hintergrundlauf, Bildschirm bleibt an, Querformat in beide Richtungen
+                Application.targetFrameRate = 60; QualitySettings.vSyncCount = 0; Application.runInBackground = false;
+                Screen.sleepTimeout = SleepTimeout.NeverSleep;
+                Screen.autorotateToPortrait = false; Screen.autorotateToPortraitUpsideDown = false;
+                Screen.autorotateToLandscapeLeft = true; Screen.autorotateToLandscapeRight = true;
+                Screen.orientation = ScreenOrientation.AutoRotation;
+            }
+            else { Application.targetFrameRate = -1; QualitySettings.vSyncCount = 1; Application.runInBackground = true; }
             useGUILayout = false;
 
             FontAtlas.Load(); Assets.Load();
@@ -95,7 +103,7 @@ namespace GlamourGames
             try { SetupDice?.Invoke(cam, shapeMat); } catch (Exception e) { Log.I("dice3d " + e.Message); }
             try { SetupHero?.Invoke(cam, shapeMat); } catch (Exception e) { Log.I("pokal3d " + e.Message); }
             Sfx.Init(gameObject);
-            handCursor = MakeHandCursor();
+            if (!Platform.Touch) handCursor = MakeHandCursor();
 
             var ci = CultureInfo.InvariantCulture;
             foreach (var a in Environment.GetCommandLineArgs())
@@ -117,7 +125,7 @@ namespace GlamourGames
                         if (q.Length == 2 && Enum.TryParse<Key>(q[0], true, out var key) && float.TryParse(q[1], NumberStyles.Float, ci, out var at)) autoKeys.Add((at, key));
                     }
             }
-            if (Save.Int("fullscreen", 0) == 1 && !Application.isEditor) Screen.SetResolution(Display.main.systemWidth, Display.main.systemHeight, FullScreenMode.FullScreenWindow);
+            if (!Platform.Touch && Save.Int("fullscreen", 0) == 1 && !Application.isEditor) Screen.SetResolution(Display.main.systemWidth, Display.main.systemHeight, FullScreenMode.FullScreenWindow);
             cur = startScene >= 0 && startScene < Registry.All.Count ? Registry.All[startScene].Make() : new Menu();
             cur.Enter(); fade = startScene >= 0 ? 0 : 1;
         }
@@ -137,14 +145,15 @@ namespace GlamourGames
         void OnGUI()
         {
             var e = Event.current; if (e == null) return;
-            if (e.isMouse || e.type == EventType.Repaint || e.type == EventType.ScrollWheel) { guiMouse = e.mousePosition; haveMouse = true; }
+            bool touch = Platform.Touch;
+            if (!touch && (e.isMouse || e.type == EventType.Repaint || e.type == EventType.ScrollWheel)) { guiMouse = e.mousePosition; haveMouse = true; }
             switch (e.type)
             {
-                case EventType.MouseDown: if (e.button == 0) events.Enqueue((1, Key.Unknown, '\0', 0)); break;
-                case EventType.MouseUp: if (e.button == 0) events.Enqueue((2, Key.Unknown, '\0', 0)); break;
-                case EventType.ScrollWheel: events.Enqueue((3, Key.Unknown, '\0', -e.delta.y)); break;
+                case EventType.MouseDown: if (!touch && e.button == 0) events.Enqueue((1, Key.Unknown, '\0', 0)); break;
+                case EventType.MouseUp: if (!touch && e.button == 0) events.Enqueue((2, Key.Unknown, '\0', 0)); break;
+                case EventType.ScrollWheel: if (!touch) events.Enqueue((3, Key.Unknown, '\0', -e.delta.y)); break;
                 case EventType.KeyDown:
-                    if (e.keyCode != KeyCode.None) events.Enqueue((4, MapKey(e.keyCode), '\0', 0));
+                    if (e.keyCode != KeyCode.None && !(touch && e.keyCode == KeyCode.Escape)) events.Enqueue((4, MapKey(e.keyCode), '\0', 0));
                     if (e.character != '\0' && e.character != '\n' && e.character != '\r' && e.character != '\t' && !char.IsControl(e.character)) events.Enqueue((5, Key.Unknown, e.character, 0));
                     break;
             }
@@ -168,7 +177,7 @@ namespace GlamourGames
 
         void KeyPress(Key k)
         {
-            if (k == Key.F11) { ToggleFullscreen(); return; }
+            if (k == Key.F11 && !Platform.Touch) { ToggleFullscreen(); return; }
             if (k == Key.F3) { showFps = !showFps; return; }
             if (cur == null) return;
             if (cur.Modal != null)
@@ -180,7 +189,16 @@ namespace GlamourGames
             }
             if (k == Key.M) { Sfx.ToggleMute(); return; }
             if (k == Key.N) { Toast(Sfx.NextTrack()); return; }
-            if (k == Key.Escape) { if (!cur.Escape()) { if (cur is Menu) Quit(); else Go(new Menu()); } return; }
+            if (k == Key.Escape)
+            {
+                if (!cur.Escape())
+                {
+                    if (!(cur is Menu)) Go(new Menu());
+                    else if (!Platform.Touch || Time.unscaledTime - lastBack < 2f) Quit();
+                    else { lastBack = Time.unscaledTime; Toast("Zum Beenden erneut Zurück drücken"); }
+                }
+                return;
+            }
             cur.KeyDown(k);
         }
 
@@ -207,26 +225,88 @@ namespace GlamourGames
             if (!cur.Ui.Up(MX, MY)) cur.MouseUp(MX, MY);
         }
 
+        // ------------------------------------------------------------------ Sichtbereich und Touch
+        /// <summary>
+        /// Passt den 16:9-Designraum (1600x900) in den sicheren Bereich des Bildschirms (Aussparungen, Systemleisten); der Hintergrund
+        /// laeuft randlos ueber den ganzen Bildschirm. VX0..VY1 sind danach die sichtbaren Grenzen in Designkoordinaten.
+        /// </summary>
+        void UpdateView()
+        {
+            float sw = Screen.width, sh = Screen.height;
+            Rect sa = Platform.Touch ? Screen.safeArea : new Rect(0, 0, sw, sh);
+            if (sa.width < 8 || sa.height < 8) sa = new Rect(0, 0, sw, sh);
+            float scale = Mathf.Min(sa.width / VW, sa.height / VH);               // Pixel je Designeinheit
+            float halfW = sw / scale / 2f, halfH = sh / scale / 2f;
+            float cx = (sw / 2f - (sa.x + sa.width / 2f)) / scale, cy = (sh / 2f - (sa.y + sa.height / 2f)) / scale;
+            cam.orthographicSize = halfH; cam.transform.position = new Vector3(cx, cy, -10);
+            VX0 = 800 + cx - halfW; VX1 = 800 + cx + halfW; VY0 = 450 - (cy + halfH); VY1 = 450 - (cy - halfH);
+            if (Platform.Touch && (sw != lastSw || sh != lastSh || sa != lastSa))
+            {
+                lastSw = sw; lastSh = sh; lastSa = sa;
+                // Pixel (von links oben) = (ox + x * scale, oy + y * scale) fuer Designkoordinaten (x, y): wird von den Test-Skripten gelesen
+                Log.I($"Ansicht: Bildschirm {sw}x{sh}, sicherer Bereich {sa.x:0},{sa.y:0},{sa.width:0},{sa.height:0}, scale={scale:0.0000} ox={sa.x + sa.width / 2f - 800 * scale:0.0} oy={sh - (sa.y + sa.height / 2f) - 450 * scale:0.0}");
+            }
+        }
+        float lastSw, lastSh; Rect lastSa;
+
+        int touchId = -1; bool parkNext;
+        void PointerTo(Vector2 screen) { var wp = cam.ScreenToWorldPoint(new Vector3(screen.x, screen.y, 10)); MoveTo(wp.x + 800, 450 - wp.y); }
+        /// <summary>Ein Finger steuert (wie die Maus); weitere Finger werden ignoriert. Nach dem Loslassen wird der Zeiger aus dem Bild genommen (kein haengender Hover).</summary>
+        void PollTouch()
+        {
+#if ENABLE_LEGACY_INPUT_MANAGER
+            for (int i = 0; i < Input.touchCount; i++)
+            {
+                var t = Input.GetTouch(i);
+                if (touchId < 0 && t.phase == TouchPhase.Began) { touchId = t.fingerId; PointerTo(t.position); Down(); continue; }
+                if (t.fingerId != touchId) continue;
+                if (t.phase == TouchPhase.Canceled) MoveTo(-5000, -5000); else PointerTo(t.position);
+                if (t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled) { Up(); touchId = -1; parkNext = true; }
+            }
+            if (touchId < 0 && parkNext && Input.touchCount == 0) { parkNext = false; MoveTo(-5000, -5000); }
+#endif
+        }
+
+        void OnApplicationPause(bool paused) { AudioListener.pause = paused; }
+
+        float perfAcc, perfWorst; int perfN;
+        void Perf(float raw)
+        {
+            perfAcc += raw; perfN++; if (raw > perfWorst) perfWorst = raw;
+            if (perfAcc < 10f) return;
+            if (!Application.isEditor) Log.I($"perf {perfN / perfAcc:0.0} fps, schlechtester Frame {perfWorst * 1000f:0} ms, Aufloesung {AdaptiveQuality.Scale:0.00}, Vertices {canvas.VertexCount}, Szene {cur?.GetType().Name}");
+            perfAcc = 0; perfN = 0; perfWorst = 0;
+        }
+
         // ------------------------------------------------------------------ Frame
         void Update()
         {
             float dt = Mathf.Min(Time.unscaledDeltaTime, .05f);
             autoT += dt;
+            Perf(Time.unscaledDeltaTime); AdaptiveQuality.Tick(Time.unscaledDeltaTime);
             Sfx.Update();
 
-            // Sichtbereich: 16:9-Designraum, bei anderem Seitenverhaeltnis wird der Rand erweitert (wie im Original)
-            float aspect = Math.Max(.2f, (float)Screen.width / Math.Max(1, Screen.height));
-            if (aspect >= VW / VH) { cam.orthographicSize = VH / 2; float hw = VH / 2 * aspect; VX0 = 800 - hw; VX1 = 800 + hw; VY0 = 0; VY1 = VH; }
-            else { float hh = VW / 2 / aspect; cam.orthographicSize = hh; VX0 = 0; VX1 = VW; VY0 = 450 - hh; VY1 = 450 + hh; }
+            UpdateView();
 
-            // Maus
-            Vector2 sp = haveMouse ? new Vector2(guiMouse.x, Screen.height - guiMouse.y) : new Vector2(-1000, -1000);
+            // Zeiger: Touch-Geraete (Finger) oder Maus
+            float mx, my;
+            if (Platform.Touch)
+            {
+                PollTouch(); mx = MX; my = MY;
 #if ENABLE_LEGACY_INPUT_MANAGER
-            try { sp = Input.mousePosition; } catch { }
+                if (Input.GetKeyDown(KeyCode.Escape)) KeyPress(Key.Escape);
 #endif
-            var wp = cam.ScreenToWorldPoint(new Vector3(sp.x, sp.y, 10));
-            float mx = wp.x + 800, my = 450 - wp.y;
-            if (Math.Abs(mx - MX) > .01f || Math.Abs(my - MY) > .01f) MoveTo(mx, my);
+            }
+            else
+            {
+                Vector2 sp = haveMouse ? new Vector2(guiMouse.x, Screen.height - guiMouse.y) : new Vector2(-1000, -1000);
+#if ENABLE_LEGACY_INPUT_MANAGER
+                try { sp = Input.mousePosition; } catch { }
+#endif
+                var wp = cam.ScreenToWorldPoint(new Vector3(sp.x, sp.y, 10));
+                mx = wp.x + 800; my = 450 - wp.y;
+                if (Math.Abs(mx - MX) > .01f || Math.Abs(my - MY) > .01f) MoveTo(mx, my);
+            }
             while (events.Count > 0)
             {
                 var ev = events.Dequeue();
@@ -254,6 +334,7 @@ namespace GlamourGames
             canvas.Begin(); Die3D.FrameBegin?.Invoke();
             try
             {
+                Link.Update();
                 cur.BaseUpdate(dt);
                 cur.BaseDraw(canvas);
                 if (cur.Chrome) DrawChrome(canvas);
@@ -276,7 +357,7 @@ namespace GlamourGames
             if (shotPath != null && shotAt >= 0 && !shotDone && autoT >= shotAt) { shotDone = true; ScreenCapture.CaptureScreenshot(shotPath); Invoke(nameof(QuitLater), .5f); }
 
             bool hot = cur.Modal != null ? cur.Modal.AnyHover : cur.Ui.Hot || cur.WantsHand || OnMute(MX, MY) || OnMusic(MX, MY);
-            if (hot != handOn && handCursor != null) { handOn = hot; Cursor.SetCursor(hot ? handCursor : null, hot ? new Vector2(9, 2) : Vector2.zero, CursorMode.Auto); }
+            if (!Platform.Touch && hot != handOn && handCursor != null) { handOn = hot; Cursor.SetCursor(hot ? handCursor : null, hot ? new Vector2(9, 2) : Vector2.zero, CursorMode.Auto); }
         }
         void QuitLater() => Quit();
 

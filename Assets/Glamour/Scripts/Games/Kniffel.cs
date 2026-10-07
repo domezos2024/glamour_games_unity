@@ -30,10 +30,26 @@ namespace GlamourGames
         static readonly float[] Tilt = DieMul();
         static float[] DieMul() => Die3D.Mul(Die3D.RX(.5f), Die3D.RY(-.42f));
         bool CpuTurn => VsCpu && cur == 1 && !over;
+        // Bluetooth: der Werfende bestimmt Augenzahlen und Wurfgeste und meldet sie; Halten, Zeilenwahl und Eintragen ebenso
+        bool RemoteTurn => Remote && cur == 1 && !over; Action netNew;
+        bool LocalNet => Remote && cur == 0;
+        public override void NetRecv(string kind, string[] a)
+        {
+            if (kind != "roll" && kind != "hold" && kind != "sel" && kind != "score") { base.NetRecv(kind, a); return; }
+            if (!RemoteTurn) return;
+            if (rolling) { int g = gen; Tm.After(.1f, () => { if (g == gen) NetRecv(kind, a); }); return; }
+            switch (kind)
+            {
+                case "roll": Roll(Link.Flt(a[0]), Link.Flt(a[1]), Link.Flt(a[2]), a[3].Split('.').Select(Link.Int).ToArray()); break;
+                case "hold": ToggleHold(Link.Int(a[0])); break;
+                case "sel": selRow = Link.Int(a[0]); Sfx.Play(S.Take, .6f); break;
+                case "score": selRow = -1; Score(Link.Int(a[0])); break;
+            }
+        }
 
         public override void Enter()
         {
-            base.Enter(); roll = Ui.Add(new Button(200, 660, 460, 96, "WÜRFELN", C.Red, HumanRoll, 42)); newBtn = Ui.Add(new Button(40, 780, 260, 62, "Neues Spiel", C.Purple, NewMatch, 24));
+            base.Enter(); roll = Ui.Add(new Button(200, 660, 460, 96, "WÜRFELN", C.Red, HumanRoll, 42)); netNew = Shared("newmatch", NewMatch); newBtn = Ui.Add(new Button(40, 780, 260, 62, "Neues Spiel", C.Purple, () => netNew(), 24));
             oppBtn = Opponents.AddSwitch(this, OppKey, 320, 776, 260, 70, NewMatch);
             NewGame(); Opponents.Pick(this, OppKey, o => NewMatch());
         }
@@ -45,40 +61,62 @@ namespace GlamourGames
         int Total(int p) => card[p].Values.Sum();
         int UpperSum(int p) => Cats.Where(c => c.upper && c.key != "bonus" && card[p].ContainsKey(c.key)).Sum(c => card[p][c.key]);
         int[] Vals() => dice.Select(d => d.V).ToArray();
-        void HumanRoll() { if (CpuTurn || CpuThinking) return; Roll(); }
-        void Roll()
+        void HumanRoll() { if (CpuTurn || CpuThinking || RemoteTurn) return; Roll(); }
+        /// <summary>Wuerfeln. power/spin/aim kommen aus der Wischgeste (Standard: normaler Wurf).</summary>
+        void Roll(float power = 1, float spin = 0, float aim = 0, int[] forced = null)
         {
-            if (selRow >= 0 && !over && !rolling) { int r0 = selRow; selRow = -1; Score(r0); return; }
+            if (selRow >= 0 && !over && !rolling) { int r0 = selRow; selRow = -1; if (LocalNet) Net("score", r0); Score(r0); return; }
             if (rolls >= 3 || over || rolling) return;
-            selRow = -1; rolls++; rolling = true; Sfx.Play(S.Dice); var rnd = Rng.Shared;
-            for (int i = 0; i < 5; i++)
+            selRow = -1; rolls++; rolling = true; Sfx.Play(S.Dice, Math.Clamp(power, .6f, 1.3f)); var rnd = Rng.Shared;
+            var free = Enumerable.Range(0, 5).Where(i => !dice[i].Held).ToList();
+            foreach (var i in free)
             {
-                var d = dice[i]; if (d.Held) continue;
-                d.V = rnd.Next(1, 7); d.T = 0; d.Dur = .9f + i * .09f;
-                if (Physical) { d.Track = DicePhysics.Throw(new Random(rnd.Next()), Slot3D(i), d.V); d.Dur = d.Track.Duration; d.HitI = 0; d.Rest = d.Track.Rot[d.Track.Rot.Length - 1]; } d.Spins = 2 + rnd.Next(3); d.Rz = rnd.Next(4) * MathF.PI / 2 + (rnd.NextSingle() - .5f) * .3f; d.Bounce = 90 + rnd.Next(60); d.Jit = (rnd.NextSingle() - .5f) * 30;
-                var a = new[] { rnd.NextSingle() - .5f, rnd.NextSingle() - .5f, rnd.NextSingle() - .5f + .2f }; d.Axis = a;
+                var d = dice[i];
+                d.V = forced != null && forced.Length == 5 ? Math.Clamp(forced[i], 1, 6) : rnd.Next(1, 7); d.T = 0; d.Dur = .9f + i * .09f; d.Spins = 2 + rnd.Next(3); d.Rz = rnd.Next(4) * MathF.PI / 2 + (rnd.NextSingle() - .5f) * .3f; d.Bounce = 90 + rnd.Next(60); d.Jit = (rnd.NextSingle() - .5f) * 30;
+                d.Axis = new[] { rnd.NextSingle() - .5f, rnd.NextSingle() - .5f, rnd.NextSingle() - .5f + .2f };
             }
+            if (Physical && free.Count > 0)
+            {
+                // alle freien Wuerfel fliegen gemeinsam aus der Hand und stossen aneinander
+                var tracks = DicePhysics.ThrowAll(new Random(rnd.Next()), free.Select(Slot3D).ToArray(), free.Select(i => dice[i].V).ToArray(), power, spin, aim, Enumerable.Range(0, 5).Where(i => dice[i].Held).Select(Slot3D).ToArray());
+                for (int k = 0; k < free.Count; k++) { var d = dice[free[k]]; d.Track = tracks[k]; d.Dur = d.Track.Duration; d.HitI = 0; d.Rest = d.Track.Rot[d.Track.Rot.Length - 1]; }
+            }
+            if (LocalNet) Net("roll", Link.F(power), Link.F(spin), Link.F(aim), string.Join(".", dice.Select(d => d.V)));
+            Log.I($"wurf: frei={free.Count} kraft={power:0.00} drall={spin:0.00} richtung={aim:0.00}");
         }
-        void ToggleHold(int i) { dice[i].Held = !dice[i].Held; Sfx.Play(S.Take, .6f); }
+        // Wischgeste ueber den Tisch: Geschwindigkeit -> Wurfkraft, seitliche Komponente -> Richtung und Drall
+        float swX, swY, swT = -1;
+        static readonly Box TableArea = Gfx.R(40, 230, 760, 330);
+        public override void MouseDown(float x, float y) { swT = TableArea.Contains(x, y) && !CpuTurn && !RemoteTurn ? Time : -1; swX = x; swY = y; }
+        bool TrySwipe(float x, float y)
+        {
+            if (swT < 0) return false; float dt = Math.Max(.03f, Time - swT), dx = x - swX, dy = y - swY, dist = MathF.Sqrt(dx * dx + dy * dy); swT = -1;
+            if (dist < 90 || CpuTurn || RemoteTurn || CpuThinking || rolling || over || rolls >= 3) return false;
+            float speed = dist / dt;
+            Roll(Math.Clamp(speed / 1600f, .6f, 1.6f), Math.Clamp(-dy / Math.Max(1, dist) * (dx < 0 ? -1 : 1), -1, 1), Math.Clamp(dy / dist, -1, 1));
+            return true;
+        }
+        void ToggleHold(int i) { if (LocalNet) Net("hold", i); dice[i].Held = !dice[i].Held; Sfx.Play(S.Take, .6f); }
         public override bool WantsHand => hoverRow >= 0 || hoverDie >= 0;
         static Box DieRect(int i) => Gfx.Ctr(130 + i * 145, 400, 128, 128);
         static Box RowRect(int r) => Gfx.R(TX, TY + 48 + r * RH, LW + 2 * CW, RH);
         public override void MouseMove(float x, float y)
         {
-            hoverRow = -1; hoverDie = -1; if (over || Modal != null || CpuTurn) return;
+            hoverRow = -1; hoverDie = -1; if (over || Modal != null || CpuTurn || RemoteTurn) return;
             for (int i = 0; i < 5; i++) if (Gfx.Inflate(DieRect(i), 10).Contains(x, y)) hoverDie = i;
             if (rolls > 0 && !rolling) for (int r = 0; r < Cats.Length; r++) if (Cats[r].key != "bonus" && !card[cur].ContainsKey(Cats[r].key) && RowRect(r).Contains(x, y)) hoverRow = r;
         }
         public override void MouseUp(float x, float y)
         {
             if (parade != null && parade.T > 2 && !resShown) { ShowResult(); return; }
-            if (CpuTurn) return;
+            if (CpuTurn || RemoteTurn) return;
+            if (TrySwipe(x, y)) return;
             if (hoverDie >= 0 && rolls > 0 && !rolling) ToggleHold(hoverDie);
-            else if (hoverRow >= 0) { selRow = selRow == hoverRow ? -1 : hoverRow; Sfx.Play(S.Take, .6f); }
+            else if (hoverRow >= 0) { selRow = selRow == hoverRow ? -1 : hoverRow; Sfx.Play(S.Take, .6f); if (LocalNet) Net("sel", selRow); }
         }
         public override void KeyDown(Key k)
         {
-            if (CpuTurn) return;
+            if (CpuTurn || RemoteTurn) return;
             if (k == Key.Space || k == Key.Enter) HumanRoll();
             else if (k >= Key.Number1 && k <= Key.Number5 && rolls > 0 && !rolling) ToggleHold(k - Key.Number1);
         }
@@ -104,7 +142,7 @@ namespace GlamourGames
         void ShowResult()
         {
             if (resShown) return; resShown = true; int w = resWin;
-            Result(w < 0 ? "UNENTSCHIEDEN" : $"{PName(w)} gewinnt!", $"{resA}  :  {resB}", w == 0 ? C.Cyan : w == 1 ? C.Pink : C.Gold, ("Nochmal", C.Green, NewMatch), ("Menü", C.Purple, () => App.Go(new Menu())));
+            Result(w < 0 ? "UNENTSCHIEDEN" : $"{PName(w)} gewinnt!", $"{resA}  :  {resB}", w == 0 ? C.Cyan : w == 1 ? C.Pink : C.Gold, ("Nochmal", C.Green, netNew), ("Menü", C.Purple, () => App.Go(new Menu())));
         }
 
         // ---------------------------------------------------------------- Computer-Gegner
@@ -149,7 +187,7 @@ namespace GlamourGames
                 {
                     d.T += dt; rolling = true;
                     // Aufprall-Geraeusche synchron zur simulierten Bahn
-                    if (d.Track != null) while (d.HitI < d.Track.Hits.Count && d.Track.Hits[d.HitI].t <= d.T) { var h = d.Track.Hits[d.HitI++]; Sfx.Play(S.Stop, .12f + .4f * h.s, 1.15f + .3f * (1 - h.s)); }
+                    if (d.Track != null) while (d.HitI < d.Track.Hits.Count && d.Track.Hits[d.HitI].t <= d.T) { var h = d.Track.Hits[d.HitI++]; Impact.Play(Mat.Dice, h.s); }
                     if (d.T >= d.Dur) { d.T = d.Dur; if (d.Track == null) { var r = DieRect(i); Fx.Spark(r.MidX, r.Bottom, C.Orange, 10, 160); Fx.Smoke(r.MidX, r.Bottom - 10, 2, 8, 20, .8f); Sfx.Play(S.Stop, .35f, 1.2f); } }
                 }
                 d.Lift.Target = d.Held ? -26 : 0; d.Lift.Update(dt);
@@ -173,7 +211,7 @@ namespace GlamourGames
             Gfx.RectRadial(c, felt, 22, felt.MidX, felt.MidY - 40, 470, new Col(22, 106, 68), new Col(5, 32, 22));
             Gfx.Stroke(c, felt, 22, Col.Black.A(.5f), 3); Gfx.Stroke(c, Gfx.Inflate(felt, -6), 18, C.Green.A(.28f), 2);
             Gfx.Light(c, felt.MidX, felt.MidY - 50, 380, new Col(255, 240, 200), .06f, 1.2f);
-            Gfx.Text(c, CpuTurn ? "Der Computer ist am Zug ..." : selRow >= 0 ? "Zeile anklicken = abwählen, grüner Knopf = eintragen" : "Klicke auf Würfel oder Tasten 1-5, um sie zu halten  -  Leertaste würfelt", 430, 560, 22, CpuTurn ? C.Pink.Light(.4f) : C.Dim, Al.C, false);
+            Gfx.Text(c, CpuTurn ? "Der Computer ist am Zug ..." : RemoteTurn ? $"{PName(1)} ist am Zug ..." : selRow >= 0 ? Platform.Pick("Zeile anklicken = abwählen, grüner Knopf = eintragen", "Zeile antippen = abwählen, grüner Knopf = eintragen") : Platform.Pick("Würfel/Tasten 1-5 halten  -  Leertaste oder über den Tisch ziehen würfelt", "Würfel antippen = halten  -  über den Tisch wischen = werfen"), 430, 560, 22, CpuTurn || RemoteTurn ? C.Pink.Light(.4f) : C.Dim, Al.C, false);
             if (Physical)
             {
                 var arr = new Die3D.TrayDie[5];

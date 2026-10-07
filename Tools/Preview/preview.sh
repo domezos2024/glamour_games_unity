@@ -25,7 +25,7 @@ cat > "$B/Preview.csproj" <<XML
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><LangVersion>9.0</LangVersion><Nullable>disable</Nullable><EnableDefaultCompileItems>false</EnableDefaultCompileItems><NoWarn>CS0414;CS0649;CS0169;CS0162;CS0219;CS0168;CS8632</NoWarn><InvariantGlobalization>true</InvariantGlobalization></PropertyGroup>
   <ItemGroup>
-    <Compile Include="$HERE/FakeUnity.cs" /><Compile Include="$HERE/Preview.cs" /><Compile Include="stubs.cs" />
+    <Compile Include="$HERE/FakeUnity.cs" /><Compile Include="$HERE/Preview.cs" /><Compile Include="$HERE/TcpBt.cs" /><Compile Include="stubs.cs" />
     <Compile Include="$ROOT/Assets/Glamour/Scripts/Core/**/*.cs" Exclude="$ROOT/Assets/Glamour/Scripts/Core/App.cs;$ROOT/Assets/Glamour/Scripts/Core/Sfx.cs" />
     <Compile Include="$ROOT/Assets/Glamour/Scripts/Games/Menu.cs" /><Compile Include="$ROOT/Assets/Glamour/Scripts/Games/Options.cs" />
     $INC

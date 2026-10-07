@@ -4,7 +4,7 @@
 
 # Glamour Games – Unity Edition
 
-**10 glitzernde Spiele – zu zweit an einem PC oder gegen den Computer.**
+**10 glitzernde Spiele – zu zweit an einem PC, per Bluetooth (auch mit dem Handy) oder gegen den Computer.**
 Neuauflage der [Glamour Games für Windows](https://github.com/domezos2024/glamour_games_windows) mit Unity 6.3 LTS,
 HDR-Neon-Grafik und einem Computer-Gegner in drei Stärken für **jedes** Spiel.
 
@@ -16,6 +16,12 @@ HDR-Neon-Grafik und einem Computer-Gegner in drei Stärken für **jedes** Spiel.
 
 **[Neueste Version herunterladen](https://github.com/domezos2024/glamour_games_unity/releases/latest)**: entweder `GlamourGames-<Version>-Setup.exe` (Installer mit Startmenü-/Desktop-Verknüpfung und Deinstallation) oder `GlamourGames-<Version>-win-x64.zip` (ohne Installation: entpacken, `GlamourGames.exe` starten).
 Voraussetzungen: Windows 10/11 (64 Bit), Grafikkarte mit DirectX 11/12.
+
+## Neu in 2.3 – Physik- und Bluetooth-Update
+
+* **Bluetooth-Mehrspieler:** alle 10 Spiele zu zweit an zwei Geräten – PC mit PC, PC mit Android-Handy oder Handy mit Handy. Geräte im Betriebssystem koppeln, im Menü (Symbol oben links) auf einem Gerät **eröffnen**, auf dem anderen **beitreten**; der Eröffner wählt das Spiel, der Mitspieler folgt automatisch.
+* **Realistische Physik:** echte Fallbeschleunigung je nach Objektgröße, Stöße mit Restitution und Reibung, Kippen, Rollen und Kreiseln. Kniffel-Würfel stoßen aneinander und lassen sich per Wischgeste werfen, Vier-Gewinnt-Steine klappern im Schacht und rollen nach dem Öffnen der Bodenklappe weg, Karten rutschen über den Filz, Chips fallen auf den Stapel, Walzen rasten federnd ein, Schiffe schaukeln und sinken mit Schlagseite, der Pokal fällt auf den Sockel und kippelt aus.
+* **Gleicher Code wie die Android-Version** ([glamour_games_unity_android](https://github.com/domezos2024/glamour_games_unity_android)).
 
 ## Neu in 2.2 – Sieger-Update (Grafik & Effekte)
 

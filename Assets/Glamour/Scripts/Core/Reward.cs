@@ -234,7 +234,11 @@ namespace GlamourGames
         float In => Ease.Clamp(T / .45f);
         float Out => 1 - Ease.Clamp((T - Dur) / 1.4f);
         float Env => In * Out;
-        float Rise => Trophy ? (1 - Ease.OutBack(Ease.Clamp(T / 1.15f))) * 520 : 0;
+        // Pokal (ca. 30 cm -> 1570 px/m) faellt auf den Sockel, springt mit kleiner Restitution nach und kippelt danach um die
+        // Bodenkanten aus (Housner-Kippmodell); Kippstoss beim ersten Aufprall unterhalb der Umkippgrenze
+        static readonly float Gt = Phys.Gpx(1570); const float DropH = 640, TRest = .25f;
+        readonly Rocker rock = new Rocker(470 * Trophy3D.Aspect * .3f, 470 * .45f, Phys.Gpx(1570)); int hops;
+        float Rise => Trophy ? -Phys.Drop(T, DropH, Gt, TRest, out _) : 0;
         float Spin => (1 - MathF.Exp(-T * 1.5f)) * MathF.PI * 4 + T * .55f;
         public Box TrophyBox { get { float h = 470 * (.72f + .28f * Ease.OutCubic(Ease.Clamp(T / 1.1f))) * (1 + .06f * (1 - Out)); return Trophy3D.Rect(800, 525 + Rise, h); } }
         float BannerY => Trophy ? 158 : 190;
@@ -242,6 +246,16 @@ namespace GlamourGames
         public void Update(float dt)
         {
             T += dt;
+            if (Trophy)
+            {
+                Phys.Drop(T, DropH, Gt, TRest, out int hp);
+                if (hp > hops)
+                {
+                    float k = MathF.Pow(TRest, hops); Impact.Play(Mat.Metal, k, 2.2f); App.Shake(10 * k);
+                    if (hops == 0) rock.Kick((Rng.F() < .5f ? -1 : 1) * rock.Critical * .55f); hops = hp;
+                }
+                rock.Update(dt);
+            }
             if (!Trophy || T < .9f || T > Dur) return;
             gAcc += dt * 7;
             while (gAcc >= 1)
@@ -274,7 +288,7 @@ namespace GlamourGames
                 cone.MoveTo(b.MidX - 40, App.VY0 - 10); cone.LineTo(b.MidX + 40, App.VY0 - 10); cone.LineTo(b.MidX + b.Width * .75f, b.Bottom); cone.LineTo(b.MidX - b.Width * .75f, b.Bottom); cone.Close();
                 var cp = Gfx.Fill(Col.White); cp.Shader = Grad.Linear(0, App.VY0, 0, b.Bottom, Metal.GoldLight.A(0), Metal.GoldLight.A(.07f * a)); cp.Additive = true; cp.Glow = 1.2f; c.DrawPath(cone, cp);
             }
-            Trophy3D.Draw(c, b, Spin, Ease.Clamp(T / .25f) * Out);
+            c.Save(); rock.Apply(c, b.MidX, b.Bottom, b.Width * .3f); Trophy3D.Draw(c, b, Spin, Ease.Clamp(T / .25f) * Out); c.Restore();
         }
 
         /// <summary>Ueber allem: Linsenreflex, Glitzer und Metall-Banner.</summary>

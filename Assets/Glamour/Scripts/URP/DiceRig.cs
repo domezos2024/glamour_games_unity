@@ -36,7 +36,7 @@ namespace GlamourGames
             main.cullingMask &= ~(1 << Layer);
 
             mesh = BuildMesh(); normalTex = BuildNormalMap();
-            rt = new RenderTexture(Cols * TilePx, Rows * TilePx, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { name = "GlamourDiceRT", antiAliasing = 8, useMipMap = false, filterMode = FilterMode.Bilinear };
+            rt = new RenderTexture(Cols * TilePx, Rows * TilePx, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { name = "GlamourDiceRT", antiAliasing = Platform.Touch ? 4 : 8, useMipMap = false, filterMode = FilterMode.Bilinear };
             rt.Create();
             shapeMat.SetTexture("_DiceTex", rt);
 
@@ -113,10 +113,13 @@ namespace GlamourGames
             if (cs != null)
             {
                 catcherMat = new Material(cs) { name = "ShadowCatcher" };
-                var fl = GameObject.CreatePrimitive(PrimitiveType.Quad); fl.name = "Tray Floor"; fl.layer = TrayLayer; fl.transform.SetParent(root.transform, false);
-                UnityEngine.Object.Destroy(fl.GetComponent<Collider>());
+                // Boden-Quad selbst aufbauen: CreatePrimitive haengt einen MeshCollider an, den es ohne Physikmodul im Build nicht gibt
+                var fl = new GameObject("Tray Floor") { layer = TrayLayer }; fl.transform.SetParent(root.transform, false);
+                var qm = new Mesh { name = "TrayFloorQuad", vertices = new[] { new Vector3(-.5f, -.5f, 0), new Vector3(.5f, -.5f, 0), new Vector3(-.5f, .5f, 0), new Vector3(.5f, .5f, 0) }, uv = new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 1), new Vector2(1, 1) }, triangles = new[] { 0, 3, 1, 3, 0, 2 } };
+                qm.normals = new[] { Vector3.back, Vector3.back, Vector3.back, Vector3.back }; qm.RecalculateBounds();
+                fl.AddComponent<MeshFilter>().sharedMesh = qm;
                 fl.transform.rotation = Quaternion.Euler(90, 0, 0); fl.transform.localScale = new Vector3(40, 40, 1);
-                var fr = fl.GetComponent<MeshRenderer>(); fr.sharedMaterial = catcherMat; fr.shadowCastingMode = ShadowCastingMode.Off; fr.receiveShadows = true;
+                var fr = fl.AddComponent<MeshRenderer>(); fr.sharedMaterial = catcherMat; fr.shadowCastingMode = ShadowCastingMode.Off; fr.receiveShadows = true;
             }
         }
 
@@ -130,7 +133,7 @@ namespace GlamourGames
             if (trayRt == null || trayRt.width != w || trayRt.height != h || !trayRt.IsCreated())
             {
                 if (trayRt != null) { trayCam.targetTexture = null; trayRt.Release(); UnityEngine.Object.Destroy(trayRt); }
-                trayRt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { name = "GlamourTrayRT", antiAliasing = 8 };
+                trayRt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { name = "GlamourTrayRT", antiAliasing = Platform.Touch ? 4 : 8 };
                 trayRt.Create(); trayCam.targetTexture = trayRt; shapeMat.SetTexture("_TrayTex", trayRt);
             }
             // Tele-Perspektive (wenig Verzerrung, filmischer Blick schraeg von oben); Bildmitte = Mitte von 'view'

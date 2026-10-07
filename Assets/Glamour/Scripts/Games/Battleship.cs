@@ -15,15 +15,38 @@ namespace GlamourGames
         const int N = 8;
         Ph ph = Ph.Setup; int cur, sel = -1; bool horiz = true; List<Ship>[] fleet = new List<Ship>[2]; HashSet<int>[] shots = { new HashSet<int>(), new HashSet<int>() }; int[] score = new int[2];
         readonly List<Button> shipBtns = new List<Button>(); string status = ""; int hover = -1; int passTo; Action passAfter; bool busy; readonly Dictionary<int, float> mark = new Dictionary<int, float>(); readonly Dictionary<Ship, float> sink = new Dictionary<Ship, float>(); readonly Dictionary<Ship, bool> sunkFx = new Dictionary<Ship, bool>();
+        // Physik: Sinkmodell (Flutung, Auftrieb, Schlagseite) und Seegang mit Treffer-Stoessen fuer schwimmende Schiffe
+        readonly Dictionary<Ship, Sinker> sinkers = new Dictionary<Ship, Sinker>(); readonly Dictionary<Ship, (float t, float v)> jolt = new Dictionary<Ship, (float, float)>();
         const float GS = 76, GX = 150, GY = 190, MS = 40, MX0 = 1080, MY0 = 236;
         static Box Cell(int i, float gx = GX, float gy = GY, float s = GS) => Gfx.R(gx + (i % N) * s, gy + (i / N) * s, s, s);
         // Computer: Gegner-Button, Generationszaehler, Fadenkreuz-Ziel
         Button bOpp; int gen; int cpuAim = -1; float aimX = GX + N * GS / 2, aimY = GY + N * GS / 2;
         bool CpuTurn => VsCpu && cur == 1 && ph == Ph.Attack;
+        // Bluetooth: jeder platziert seine Flotte am eigenen Geraet, die Aufstellungen werden ausgetauscht, danach Schuesse
+        bool RemoteTurn => Remote && cur == 1 && ph == Ph.Attack; bool myFleetSent, theirFleet; Action netNext, netNew;
+        static string Enc(List<Ship> f) => string.Join(";", f.Select(s => (s.Horiz ? "1" : "0") + "." + string.Join(".", s.Cells)));
+        void Dec(string txt)
+        {
+            var parts = txt.Split(';'); if (parts.Length != fleet[1].Count) return;
+            for (int i = 0; i < parts.Length; i++) { var v = parts[i].Split('.'); fleet[1][i].Horiz = v[0] == "1"; fleet[1][i].Cells = v.Skip(1).Select(Link.Int).ToList(); }
+        }
+        public override void NetRecv(string kind, string[] a)
+        {
+            switch (kind)
+            {
+                case "fleet": Dec(a[0]); theirFleet = true; if (myFleetSent && ph == Ph.Setup) StartAttack(starter); else if (ph == Ph.Setup) App.Toast($"{PName(1)} ist bereit"); break;
+                case "shot":
+                    if (ph != Ph.Attack) return;
+                    if (busy || !RemoteTurn) { int g = gen; Tm.After(.1f, () => { if (g == gen) NetRecv(kind, a); }); return; }
+                    Shoot(Link.Int(a[0])); break;
+                default: base.NetRecv(kind, a); break;
+            }
+        }
         public override Pt ThinkPos => new Pt(GX + N * GS / 2, 858);
         public override void Enter()
         {
             base.Enter();
+            netNext = Shared("next", NextRound); netNew = Shared("newmatch", NewMatch);
             bOpp = Opponents.AddSwitch(this, OppKey, 1150, 22, 260, 70, NewMatch);
             NewGame();
             Opponents.Pick(this, OppKey, o => NewMatch());
@@ -33,7 +56,7 @@ namespace GlamourGames
         void NextRound() { starter = 1 - starter; NewGame(); }
         void NewGame()
         {
-            gen++; CancelCpuThink(); cpuAim = -1; parade = null; resShown = false; fleet = new[] { Mk(), Mk() }; shots = new[] { new HashSet<int>(), new HashSet<int>() }; cur = 0; ph = Ph.Setup; sel = -1; horiz = true; mark.Clear(); sink.Clear(); sunkFx.Clear(); Fx.Clear(); Modal = null; busy = false;
+            gen++; CancelCpuThink(); cpuAim = -1; parade = null; resShown = false; fleet = new[] { Mk(), Mk() }; shots = new[] { new HashSet<int>(), new HashSet<int>() }; cur = 0; ph = Ph.Setup; sel = -1; horiz = true; mark.Clear(); sink.Clear(); sunkFx.Clear(); sinkers.Clear(); jolt.Clear(); waves.Clear(); Fx.Clear(); Modal = null; busy = false; myFleetSent = theirFleet = false;
             if (VsCpu) PlaceRandom(1);   // Computer-Flotte zufaellig und verdeckt
             BuildUi(); status = $"{PName(0)}: Schiffe platzieren";
         }
@@ -47,20 +70,21 @@ namespace GlamourGames
                 for (int i = 0; i < f.Count; i++) { int k = i; var b = Ui.Add(new Button(1020, 190 + i * 84, 420, 68, $"{f[i].Name} ({f[i].Size})", f[i].Cells.Count > 0 ? C.Green : C.Cyan, () => { sel = k; horiz = f[k].Horiz; }, 26)); shipBtns.Add(b); }
                 Ui.Add(new Button(1020, 550, 200, 62, "Drehen", C.Purple, () => horiz = !horiz, 24));
                 Ui.Add(new Button(1240, 550, 200, 62, "Zufällig", C.Orange, Randomize, 24));
-                Ui.Add(new Button(1020, 640, 420, 76, "Fertig", C.Green, Done, 32) { Enabled = fleet[cur].All(s => s.Cells.Count > 0) });
+                Ui.Add(new Button(1020, 640, 420, 76, myFleetSent ? "Warte ..." : "Fertig", C.Green, Done, 32) { Enabled = !myFleetSent && fleet[cur].All(s => s.Cells.Count > 0) });
             }
             else if (ph == Ph.Pass) Ui.Add(new Button(600, 610, 400, 90, "Bereit", C.Green, () => { var a = passAfter; passAfter = null; cur = passTo; a?.Invoke(); }, 36));
-            else if (ph == Ph.Attack) Ui.Add(new Button(1020, 760, 420, 62, "Aufgeben / Neues Spiel", C.Red, NewMatch, 22));
+            else if (ph == Ph.Attack) Ui.Add(new Button(1020, 760, 420, 62, "Aufgeben / Neues Spiel", C.Red, () => netNew(), 22));
         }
         bool Occ(int p, int cell, Ship except = null) => fleet[p].Any(s => s != except && s.Cells.Contains(cell));
         static List<int> Footprint(int cell, int size, bool h) => BattleAI.Footprint(cell, size, h);
         bool CanPlace(int cell, Ship s) { var fp = Footprint(cell, s.Size, horiz); return fp != null && fp.All(x => !Occ(cur, x, s)); }
         void Place(int cell)
         {
+            if (myFleetSent) return;
             if (sel < 0) { var s = fleet[cur].FirstOrDefault(x => x.Cells.Contains(cell)); if (s != null) { sel = fleet[cur].IndexOf(s); horiz = s.Horiz; s.Cells.Clear(); Sfx.Play(S.Take); BuildUi(); } return; }
             var sh = fleet[cur][sel];
             if (!CanPlace(cell, sh)) { App.Toast(Footprint(cell, sh.Size, horiz) == null ? "Schiff passt nicht aufs Feld" : "Position belegt"); Sfx.Play(S.NoMatch, .5f); return; }
-            sh.Cells = Footprint(cell, sh.Size, horiz); sh.Horiz = horiz; Sfx.Play(S.Drop); var r = Cell(cell); Fx.Ring(r.MidX, r.MidY, C.Cyan, 20, 200); Fx.Splash(r.MidX, r.MidY, .5f);
+            sh.Cells = Footprint(cell, sh.Size, horiz); sh.Horiz = horiz; Sfx.Play(S.Drop); var r = Cell(cell); Fx.Ring(r.MidX, r.MidY, C.Cyan, 20, 200); Fx.Splash(r.MidX, r.MidY, .5f); waves.Add((cur, r.MidX, r.MidY, Time));
             sel = fleet[cur].FindIndex(x => x.Cells.Count == 0); BuildUi();
         }
         /// <summary>Gueltige Zufallsflotte fuer Platz p (Regeln wie im Original: keine Ueberlappung).</summary>
@@ -69,10 +93,16 @@ namespace GlamourGames
             var fl = BattleAI.RandomFleet(fleet[p].Select(s => s.Size).ToArray(), Rng.Shared);
             for (int i = 0; i < fleet[p].Count; i++) { fleet[p][i].Cells = fl[i].cells; fleet[p][i].Horiz = fl[i].horiz; }
         }
-        void Randomize() { PlaceRandom(cur); sel = -1; Sfx.Play(S.Dice, .7f); BuildUi(); }
+        void Randomize() { if (myFleetSent) return; PlaceRandom(cur); sel = -1; Sfx.Play(S.Dice, .7f); BuildUi(); }
         void Done()
         {
             if (VsCpu) { StartAttack(starter); return; }   // gegen den Computer kein Platztausch
+            if (Remote)
+            {
+                if (myFleetSent) return; myFleetSent = true; Net("fleet", Enc(fleet[0])); sel = -1;
+                if (theirFleet) StartAttack(starter); else { status = $"Warte auf {PName(1)} ..."; BuildUi(); }
+                return;
+            }
             if (cur == 0) ToPass(1, () => { ph = Ph.Setup; sel = -1; status = $"{PName(1)}: Schiffe platzieren"; BuildUi(); });
             else ToPass(starter, () => { ph = Ph.Attack; status = $"{PName(starter)} - Feuer frei!"; BuildUi(); });
         }
@@ -81,7 +111,7 @@ namespace GlamourGames
         public override bool WantsHand => hover >= 0;
         public override void MouseMove(float x, float y)
         {
-            hover = -1; if (Modal != null || busy || CpuTurn || CpuThinking) return;
+            hover = -1; if (Modal != null || busy || CpuTurn || CpuThinking || RemoteTurn) return;
             if (ph == Ph.Setup || ph == Ph.Attack) for (int i = 0; i < 64; i++) if (Cell(i).Contains(x, y)) hover = i;
         }
         public override void KeyDown(Key k) { if (k == Key.R && ph == Ph.Setup) horiz = !horiz; }
@@ -89,20 +119,23 @@ namespace GlamourGames
         public override void MouseUp(float x, float y)
         {
             if (parade != null && parade.T > 1.5f) { FireRes(); return; }
-            if (hover < 0 || CpuTurn || CpuThinking) return;
+            if (hover < 0 || CpuTurn || CpuThinking || RemoteTurn) return;
             if (ph == Ph.Setup) Place(hover); else if (ph == Ph.Attack) Shoot(hover);
         }
         void Shoot(int cell)
         {
             if (busy || shots[cur].Contains(cell)) return;
+            if (Remote && cur == 0) Net("shot", cell);
             int p = cur, o = 1 - p; shots[p].Add(cell); mark[cell + p * 100] = 0; var r = Cell(cell);
+            waves.Add((o, r.MidX, r.MidY, Time)); if (waves.Count > 12) waves.RemoveAt(0);
             var hit = fleet[o].FirstOrDefault(s => s.Cells.Contains(cell));
             if (hit != null)
             {
-                Sfx.Play(S.Hit); Sfx.Play(S.Boom, .7f, .9f + Rng.F() * .3f); Tm.After(.25f, () => Sfx.Play(S.Crackle, .4f)); App.Shake(11); App.Flash(C.Orange, .22f); Fx.Explosion(r.MidX, r.MidY, 1f); Fx.Burst(r.MidX, r.MidY, 24, new[] { C.Orange, C.Yellow, C.Red }, 380, 0, 200); Pop("BUMM!", r.MidX, r.MidY - 30, C.Yellow, 44);
+                jolt[hit] = (Time, (Rng.F() < .5f ? -1 : 1) * Rng.F(9, 14));
+                Sfx.Play(S.Hit); Sfx.Play(S.Boom, .7f, .9f + Rng.F() * .3f); Tm.After(.25f, () => Sfx.Play(S.Crackle, .4f)); App.Shake(11); App.Flash(C.Orange, .22f); Fx.Explosion(r.MidX, r.MidY, 1f); Fx.Ripple(r.MidX, r.MidY, 120); Fx.Ripple(r.MidX, r.MidY, 190, .22f); Fx.Burst(r.MidX, r.MidY, 24, new[] { C.Orange, C.Yellow, C.Red }, 380, 0, 200); Pop("BUMM!", r.MidX, r.MidY - 30, C.Yellow, 44);
                 if (hit.Cells.All(shots[p].Contains))
                 {
-                    hit.Sunk = true; sink[hit] = 0; Sfx.Play(S.Sunk); Sfx.Play(S.Creak, .8f); Tm.After(.7f, () => Sfx.Play(S.Gurgle, .8f)); App.Flash(C.Orange, .35f); App.Shake(16);
+                    hit.Sunk = true; sink[hit] = 0; sinkers[hit] = new Sinker(Rng.F() < .5f ? -1 : 1); Log.I($"versenkt: {hit.Name}"); Sfx.Play(S.Sunk); Sfx.Play(S.Creak, .8f); Tm.After(.7f, () => Sfx.Play(S.Gurgle, .8f)); App.Flash(C.Orange, .35f); App.Shake(16);
                     for (int ci = 0; ci < hit.Cells.Count; ci++) { var q = Cell(hit.Cells[ci]); Tm.After(ci * .2f, () => { Fx.Explosion(q.MidX, q.MidY, 1.3f); Sfx.Play(S.Boom, .6f, .8f + Rng.F() * .4f); App.Shake(9); }); }
                     Tm.After(.9f, () => Fx.Lightning(r.MidX, -20, r.MidX, r.MidY, C.Orange));
                     Pop("VERSENKT!", 480, 140, C.Orange, 60);
@@ -119,7 +152,7 @@ namespace GlamourGames
                 Tm.After(1.5f, () =>
                 {
                     if (g != gen) return; busy = false;
-                    if (VsCpu) StartAttack(o);
+                    if (VsCpu || Remote) StartAttack(o);
                     else ToPass(o, () => { ph = Ph.Attack; status = $"{PName(o)} - Feuer frei!"; BuildUi(); });
                 });
             }
@@ -150,13 +183,14 @@ namespace GlamourGames
             {
                 if (ph != Ph.Over || g != gen) return;
                 parade = new DiceParade(this, p, new[] { C.Cyan, C.Pink }, new[] { PName(0), PName(1) }, new[] { score[0], score[1] }, PKind.Sailor, 1.35f);
-                showRes = () => { busy = false; Result($"{PName(p)} GEWINNT!", $"Alle Schiffe von {PName(1 - p)} versenkt", p == 0 ? C.Cyan : C.Pink, new List<string> { $"Stand: {score[0]} : {score[1]}" }, ("Nochmal", C.Green, NextRound), ("Menü", C.Purple, () => App.Go(new Menu()))); };
+                showRes = () => { busy = false; Result($"{PName(p)} GEWINNT!", $"Alle Schiffe von {PName(1 - p)} versenkt", p == 0 ? C.Cyan : C.Pink, new List<string> { $"Stand: {score[0]} : {score[1]}" }, ("Nochmal", C.Green, netNext), ("Menü", C.Purple, () => App.Go(new Menu()))); };
             });
         }
         public override void Update(float dt)
         {
             parade?.Update(dt); if (parade != null && parade.T > parade.Total) FireRes();
             foreach (var k in mark.Keys.ToList()) mark[k] += dt;
+            foreach (var sk in sinkers.Values) if (sk.T < 3.4f) sk.Update(dt);
             foreach (var sh in sink.Keys.ToList())
             {
                 float st = sink[sh] + dt; sink[sh] = st;
@@ -185,7 +219,7 @@ namespace GlamourGames
             var r = Gfx.Ctr(800, 450, 900, 420); Gfx.Glow(c, r, 30, C.Cyan, 26, .5f); W.Panel(c, r, C.Cyan, 30);
             Gfx.Text(c, PName(passTo), 800, 330, 84, passTo == 0 ? C.Cyan : C.Pink, Al.C, true, 24, true);
             Gfx.Text(c, "Platz tauschen - der andere Spieler schaut weg!", 800, 430, 30, Col.White, Al.C, false);
-            Gfx.Text(c, "Erst wenn du bereit bist, auf \"Bereit\" klicken.", 800, 480, 24, C.Dim, Al.C, false);
+            Gfx.Text(c, Platform.Pick("Erst wenn du bereit bist, auf \"Bereit\" klicken.", "Erst wenn du bereit bist, auf \"Bereit\" tippen."), 800, 480, 24, C.Dim, Al.C, false);
         }
         void Water(Canvas2D c, float gx, float gy, float s, bool labels)
         {
@@ -194,6 +228,36 @@ namespace GlamourGames
             var bp = Gfx.Line(C.Cyan.A(.8f), 2.5f); bp.Glow = 1.6f; c.DrawRoundRect(r, 14, 14, bp);
             var gl = Gfx.Line(C.Cyan.A(.22f), 1.5f); gl.Glow = 1.2f; for (int k = 0; k <= N; k++) { c.DrawLine(gx + k * s, gy, gx + k * s, gy + N * s, gl); c.DrawLine(gx, gy + k * s, gx + N * s, gy + k * s, gl); }
             if (labels) for (int k = 0; k < N; k++) { Gfx.Text(c, ((char)('A' + k)).ToString(), gx + k * s + s / 2, gy - 22, 20, C.Cyan.Light(.4f)); Gfx.Text(c, (k + 1).ToString(), gx - 24, gy + k * s + s / 2, 20, C.Cyan.Light(.4f)); }
+        }
+        /// <summary>
+        /// Schwimmendes Schiff im Seegang (Draufsicht): Gieren und Versatz aus zwei Wellenkomponenten, Eigenperiode waechst
+        /// mit der Schiffslaenge; ein Treffer stoesst das Schiff seitlich an, das gedaempft ausschwingt.
+        /// </summary>
+        // Wellenringe der Einschlaege: Ausbreitung mit fester Geschwindigkeit, Amplitude faellt mit Laufweg und Zeit
+        readonly List<(int board, float x, float y, float t)> waves = new List<(int, float, float, float)>();
+        const float WaveC = 230, WaveLen = 80;
+        /// <summary>Wellenhoehe (-1..1) und Ausbreitungsrichtung am Punkt (x, y) fuer das Brett des Spielers board.</summary>
+        (float h, float dx, float dy) Wave(int board, float x, float y)
+        {
+            float h = 0, ddx = 0, ddy = 0;
+            foreach (var w in waves)
+            {
+                if (w.board != board) continue; float age = Time - w.t, dx = x - w.x, dy = y - w.y, r = MathF.Sqrt(dx * dx + dy * dy) + 1e-3f, front = WaveC * age;
+                if (age > 3.5f || r > front) continue;
+                float a = MathF.Exp(-1.3f * age) / MathF.Sqrt(1 + r / 50) * MathF.Min(1, (front - r) / WaveLen), v = a * MathF.Sin(2 * MathF.PI * (r - front) / WaveLen);
+                h += v; ddx += dx / r * v; ddy += dy / r * v;
+            }
+            return (h, ddx, ddy);
+        }
+        void Afloat(Canvas2D c, Ship s, float x, float y, float sz)
+        {
+            float L = s.Size * sz, cx = s.Horiz ? x + L / 2 : x + sz / 2, cy = s.Horiz ? y + sz / 2 : y + L / 2, ph = s.Cells.Count > 0 ? s.Cells[0] * .73f : 0;
+            float w = 2 * MathF.PI / (2.2f + .5f * s.Size), yaw = .012f * MathF.Sin(Time * w + ph) + .006f * MathF.Sin(Time * w * 1.9f + ph * 2), sway = 1.4f * MathF.Sin(Time * w * .8f + ph);
+            if (jolt.TryGetValue(s, out var j)) { float k = Phys.Ring(j.v, Time - j.t, .9f, .25f); sway += k; yaw += k * .004f; }
+            var wv = Wave(fleet[0].Contains(s) ? 0 : 1, cx, cy); float heave = 1 + .06f * wv.h;
+            // Welle hebt das Schiff an (naeher zur Kamera = groesser) und schiebt es in Laufrichtung
+            c.Save(); c.Translate(cx + (s.Horiz ? 0 : sway) + 5 * wv.dx, cy + (s.Horiz ? sway : 0) + 5 * wv.dy); c.RotateRadians(yaw); c.Scale(heave, heave); c.Translate(-cx, -cy);
+            Hull(c, x, y, s.Size, sz, s.Horiz, 1, 0, Time); c.Restore();
         }
         static Col Ca(int r, int g, int b, float a) => new Col(r, g, b, (int)(255 * a));
         static void Hull(Canvas2D c, float x, float y, int len, float s, bool horiz, float alpha, float red, float t)
@@ -239,7 +303,7 @@ namespace GlamourGames
         void DrawSetup(Canvas2D c)
         {
             Water(c, GX, GY, GS, true);
-            foreach (var s in fleet[cur]) if (s.Cells.Count > 0) { var r = Cell(s.Cells[0]); Hull(c, r.Left + 3, r.Top + 3, s.Size, GS - 6, s.Horiz, 1, 0, Time); }
+            foreach (var s in fleet[cur]) if (s.Cells.Count > 0) { var r = Cell(s.Cells[0]); Afloat(c, s, r.Left + 3, r.Top + 3, GS - 6); }
             if (hover >= 0 && sel >= 0)
             {
                 var sh = fleet[cur][sel]; bool ok = CanPlace(hover, sh); var fp = Footprint(hover, sh.Size, horiz) ?? new List<int> { hover };
@@ -248,7 +312,7 @@ namespace GlamourGames
             }
             Gfx.Text(c, $"Flotte von {PName(cur)}", 1230, 158, 28, cur == 0 ? C.Cyan : C.Pink, Al.C, true, 8);
             for (int i = 0; i < shipBtns.Count; i++) { shipBtns[i].Selected = sel == i; shipBtns[i].Col = fleet[cur][i].Cells.Count > 0 ? C.Green : C.Cyan; }
-            Gfx.Text(c, sel >= 0 ? $"Ausgewählt: {fleet[cur][sel].Name} - {(horiz ? "waagerecht" : "senkrecht")}" : "Wähle ein Schiff (oder klicke ein platziertes zum Verschieben)", 1230, 528, 20, C.Dim, Al.C, false);
+            Gfx.Text(c, sel >= 0 ? $"Ausgewählt: {fleet[cur][sel].Name} - {(horiz ? "waagerecht" : "senkrecht")}" : Platform.Pick("Wähle ein Schiff (oder klicke ein platziertes zum Verschieben)", "Wähle ein Schiff (oder tippe ein platziertes zum Verschieben)"), 1230, 528, 20, C.Dim, Al.C, false);
         }
         void Crosshair(Canvas2D c, float x, float y, Col col, float a)
         {
@@ -261,13 +325,15 @@ namespace GlamourGames
             int p = cur, o = 1 - p;
             Water(c, GX, GY, GS, true);
             // gegen den Computer: beim Computerzug sieht der Mensch die eigene Flotte
-            if (VsCpu && o == 0) foreach (var s in fleet[0]) if (!s.Sunk) { var r = Cell(s.Cells[0]); Hull(c, r.Left + 3, r.Top + 3, s.Size, GS - 6, s.Horiz, 1, 0, Time); }
+            if ((VsCpu || Remote) && o == 0) foreach (var s in fleet[0]) if (!s.Sunk) { var r = Cell(s.Cells[0]); Afloat(c, s, r.Left + 3, r.Top + 3, GS - 6); }
             foreach (var s in fleet[o]) if (s.Sunk)
                 {
                     var r = Cell(s.Cells[0]); float st = sink.TryGetValue(s, out var q) ? q : 9;
                     if (st >= 3.2f) { Hull(c, r.Left + 3, r.Top + 3, s.Size, GS - 6, s.Horiz, .55f, 1, Time); continue; }
-                    float u = Ease.InOutCubic(st / 3.2f), L = s.Size * (GS - 6), cw = s.Horiz ? L : GS - 6, ch = s.Horiz ? GS - 6 : L, cx = r.Left + 3 + cw / 2, cy = r.Top + 3 + ch / 2;
-                    c.Save(); c.Translate(cx + MathF.Sin(st * 9) * 2 * (1 - u), cy + 34 * u); c.RotateDegrees((s.Horiz ? 1 : -1) * 24 * u + MathF.Sin(st * 5) * 2); c.Scale(1 - .25f * u); c.Translate(-cx, -cy);
+                    // Tiefe und Schlagseite aus dem Sinkmodell (Flutung gegen Auftrieb, Kraengung gegen aufrichtendes Moment)
+                    if (!sinkers.TryGetValue(s, out var sk)) { sk = new Sinker(1); sinkers[s] = sk; }
+                    float u = sk.Depth, L = s.Size * (GS - 6), cw = s.Horiz ? L : GS - 6, ch = s.Horiz ? GS - 6 : L, cx = r.Left + 3 + cw / 2, cy = r.Top + 3 + ch / 2;
+                    c.Save(); c.Translate(cx, cy + 34 * u); c.RotateRadians((s.Horiz ? 1 : -1) * sk.Roll); c.Scale(1 - .25f * u); c.Translate(-cx, -cy);
                     Hull(c, r.Left + 3, r.Top + 3, s.Size, GS - 6, s.Horiz, 1 - .5f * u, 1, Time); c.Restore();
                     var wr = Gfx.R(cx - cw / 2 - 6, cy - ch / 2 - 6, cw + 12, ch + 40); Gfx.Rect(c, wr, 14, new Col(0, 60, 110).A(.8f * u));
                     for (int k = 0; k < 3; k++) { float ph2 = (st * .8f + k * .33f) % 1; c.DrawOval(cx, cy + 10, cw * (.3f + .5f * ph2), ch * (.2f + .35f * ph2), Gfx.Line(Col.White.A(.5f * (1 - ph2)), 2.5f)); }

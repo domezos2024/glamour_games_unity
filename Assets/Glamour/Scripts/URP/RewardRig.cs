@@ -84,7 +84,7 @@ namespace GlamourGames
             {
                 if (rt != null) { cam.targetTexture = null; rt.Release(); Object.Destroy(rt); }
                 w = (w + 63) / 64 * 64; h = (h + 63) / 64 * 64;
-                rt = new RenderTexture(w, h, 24, hdr ? RenderTextureFormat.ARGBHalf : RenderTextureFormat.ARGB32, hdr ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.sRGB) { name = "GlamourTrophyRT", antiAliasing = 8, useMipMap = false, filterMode = FilterMode.Bilinear };
+                rt = new RenderTexture(w, h, 24, hdr ? RenderTextureFormat.ARGBHalf : RenderTextureFormat.ARGB32, hdr ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.sRGB) { name = "GlamourTrophyRT", antiAliasing = Platform.Touch ? 4 : 8, useMipMap = false, filterMode = FilterMode.Bilinear };
                 rt.Create(); cam.targetTexture = rt; shapeMat.SetTexture("_HeroTex", rt);
             }
             cam.aspect = view.Width / view.Height;
