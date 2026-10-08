@@ -48,15 +48,20 @@ namespace GlamourGames
         [DllImport("BluetoothAPIs.dll", SetLastError = true)] static extern bool BluetoothFindNextDevice(IntPtr h, ref DEVICE_INFO info);
         [DllImport("BluetoothAPIs.dll")] static extern bool BluetoothFindDeviceClose(IntPtr h);
 
-        static bool started; readonly ConcurrentQueue<string> inbox = new ConcurrentQueue<string>(); readonly object sendLock = new object();
-        IntPtr listenSock = Invalid, sock = Invalid; volatile bool connected; volatile string status = "bereit"; volatile int gen;
+        sealed class Peer { public int Id; public IntPtr S; public readonly object Lock = new object(); public volatile bool Closed, Reported; public int G; }
+
+        static bool started; readonly ConcurrentQueue<TransportEvent> events = new ConcurrentQueue<TransportEvent>();
+        readonly ConcurrentDictionary<int, Peer> peers = new ConcurrentDictionary<int, Peer>();
+        IntPtr listenSock = Invalid; volatile string status = "bereit"; volatile int gen; volatile bool listening; volatile BtErr lastErr; int nextPeer = 1;
         WSAQUERYSET reg; bool registered; IntPtr regVer, regHandle, regSet, regBlob;
 
         public WinBt() { if (!started) { WSAStartup(0x0202, new byte[1024]); started = true; } }
         bool? supported;
         public bool Supported { get { if (supported == null) { var s = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM); supported = s != Invalid; if (s != Invalid) closesocket(s); } return supported.Value; } }
         public bool Enabled => Supported;
-        public bool Connected => connected;
+        public int MaxPeers => 3;
+        public bool Listening => listening;
+        public BtErr LastError => lastErr;
         public string Status => status;
         public bool EnsurePermission() => true;
 
@@ -79,66 +84,95 @@ namespace GlamourGames
         static string Addr(ulong a) { var b = new string[6]; for (int i = 0; i < 6; i++) b[5 - i] = ((a >> (8 * i)) & 0xFF).ToString("X2"); return string.Join(":", b); }
         static ulong Addr(string s) { ulong v = 0; foreach (var part in s.Split(':')) v = (v << 8) | Convert.ToUInt64(part, 16); return v; }
 
-        public void Host()
+        /// <summary>Host: Dienst anmelden, Accept-Schleife nimmt bis MaxPeers Gaeste an und bleibt offen (Wiederverbindung).</summary>
+        public void StartHost()
         {
-            Stop(); int g = ++gen;
-            var s = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM); if (s == Invalid) { status = "Bluetooth nicht verfügbar (" + WSAGetLastError() + ")"; return; }
+            Stop(); int g = ++gen; lastErr = BtErr.None;
+            var s = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM); if (s == Invalid) { status = "Bluetooth nicht verfügbar (" + WSAGetLastError() + ")"; lastErr = BtErr.NoAdapter; events.Enqueue(TransportEvent.Close(0, BtErr.NoAdapter, status)); return; }
             var sa = new SOCKADDR_BTH { family = AF_BTH, port = BT_PORT_ANY }; int len = Marshal.SizeOf(sa);
-            if (bind(s, ref sa, len) != 0 || getsockname(s, ref sa, ref len) != 0 || listen(s, 1) != 0) { status = "Fehler beim Eröffnen (" + WSAGetLastError() + ")"; closesocket(s); return; }
-            listenSock = s; Register(sa); status = "wartet auf Mitspieler";
+            if (bind(s, ref sa, len) != 0 || getsockname(s, ref sa, ref len) != 0 || listen(s, MaxPeers) != 0) { status = "Fehler beim Eröffnen (" + WSAGetLastError() + ")"; lastErr = BtErr.Unknown; closesocket(s); events.Enqueue(TransportEvent.Close(0, BtErr.Unknown, status)); return; }
+            listenSock = s; Register(sa); status = "wartet auf Mitspieler"; listening = true;
             new Thread(() =>
             {
-                var c = accept(s, IntPtr.Zero, IntPtr.Zero);
-                if (g != gen) { if (c != Invalid) closesocket(c); return; }
-                Unregister(); closesocket(s); listenSock = Invalid;
-                if (c == Invalid) { status = "Fehler beim Warten (" + WSAGetLastError() + ")"; return; }
-                Run(c, g);
-            }) { IsBackground = true, Name = "WinBt-host" }.Start();
+                while (g == gen)
+                {
+                    var c = accept(s, IntPtr.Zero, IntPtr.Zero);
+                    if (g != gen) { if (c != Invalid) closesocket(c); break; }
+                    if (c == Invalid) { if (g == gen) { status = "Fehler beim Warten (" + WSAGetLastError() + ")"; lastErr = BtErr.Unknown; } break; }
+                    if (peers.Count >= MaxPeers) { closesocket(c); continue; }
+                    Attach(c, g, Interlocked.Increment(ref nextPeer) - 1, "Gast");
+                }
+            }) { IsBackground = true, Name = "WinBt-accept" }.Start();
         }
 
-        public void Join(string addr)
+        public void Connect(string addr)
         {
-            Stop(); int g = ++gen; status = "verbindet ...";
+            Stop(); int g = ++gen; status = "verbindet ..."; lastErr = BtErr.None;
             new Thread(() =>
             {
-                var s = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM); if (s == Invalid) { status = "Bluetooth nicht verfügbar"; return; }
+                var s = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM); if (s == Invalid) { status = "Bluetooth nicht verfügbar"; if (g == gen) events.Enqueue(TransportEvent.Close(0, BtErr.NoAdapter)); return; }
                 var sa = new SOCKADDR_BTH { family = AF_BTH, addr = Addr(addr), service = Service, port = 0 };
-                if (connect(s, ref sa, Marshal.SizeOf(sa)) != 0) { if (g == gen) status = "Verbindung fehlgeschlagen (" + WSAGetLastError() + ")"; closesocket(s); return; }
+                if (connect(s, ref sa, Marshal.SizeOf(sa)) != 0) { int e = WSAGetLastError(); closesocket(s); if (g == gen) { status = "Verbindung fehlgeschlagen (" + e + ")"; lastErr = e == 10060 ? BtErr.Timeout : BtErr.ConnectFailed; events.Enqueue(TransportEvent.Close(0, lastErr, "WSA " + e)); } return; }
                 if (g != gen) { closesocket(s); return; }
-                Run(s, g);
+                Attach(s, g, 0, addr);
             }) { IsBackground = true, Name = "WinBt-join" }.Start();
         }
 
-        void Run(IntPtr s, int g)
+        void Attach(IntPtr s, int g, int id, string name)
         {
-            sock = s; connected = true; status = "verbunden";
-            var buf = new byte[4096]; var acc = new List<byte>();
-            while (g == gen)
+            var p = new Peer { Id = id, S = s, G = g }; peers[id] = p; status = "verbunden";
+            events.Enqueue(TransportEvent.Conn(id, name, name));
+            new Thread(() =>
             {
-                int n = recv(s, buf, buf.Length, 0); if (n <= 0) break;
-                for (int i = 0; i < n; i++)
+                var buf = new byte[4096]; var acc = new List<byte>(); BtErr why = BtErr.SocketClosed;
+                while (!p.Closed && g == gen)
                 {
-                    if (buf[i] == (byte)'\n') { inbox.Enqueue(Encoding.UTF8.GetString(acc.ToArray()).TrimEnd('\r')); acc.Clear(); }
-                    else acc.Add(buf[i]);
+                    int n = recv(s, buf, buf.Length, 0); if (n < 0) { why = p.Closed ? BtErr.SocketClosed : BtErr.ReadFailed; break; } if (n == 0) break;
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (buf[i] == (byte)'\n') { if (g == gen) events.Enqueue(TransportEvent.Data(id, Encoding.UTF8.GetString(acc.ToArray()).TrimEnd('\r'))); acc.Clear(); }
+                        else if (acc.Count < 40000) acc.Add(buf[i]); else { why = BtErr.ReadFailed; p.Closed = true; break; }
+                    }
                 }
-            }
-            if (g == gen) { connected = false; status = "getrennt"; closesocket(s); sock = Invalid; }
+                Finish(p, why);
+            }) { IsBackground = true, Name = "WinBt-read-" + id }.Start();
         }
 
-        public void Send(string line)
+        void Finish(Peer p, BtErr why)
         {
-            var s = sock; if (!connected || s == Invalid) return; var b = Encoding.UTF8.GetBytes(line + "\n");
-            lock (sendLock) { int off = 0; while (off < b.Length) { var part = b; if (off > 0) { part = new byte[b.Length - off]; Array.Copy(b, off, part, 0, part.Length); } int n = send(s, part, part.Length, 0); if (n <= 0) { connected = false; status = "getrennt"; return; } off += n; } }
+            lock (p.Lock) { if (p.Reported) return; p.Reported = true; p.Closed = true; closesocket(p.S); }
+            peers.TryRemove(p.Id, out _);
+            if (p.G == gen) { events.Enqueue(TransportEvent.Close(p.Id, why)); if (peers.IsEmpty && !listening) status = "getrennt"; }
         }
-        public bool Poll(out string line) => inbox.TryDequeue(out line);
+
+        public void Send(int peer, string line)
+        {
+            if (!peers.TryGetValue(peer, out var p) || p.Closed) return; var b = Encoding.UTF8.GetBytes(line + "\n");
+            lock (p.Lock)
+            {
+                int off = 0;
+                while (off < b.Length && !p.Closed)
+                {
+                    var part = b; if (off > 0) { part = new byte[b.Length - off]; Array.Copy(b, off, part, 0, part.Length); }
+                    int n = send(p.S, part, part.Length, 0); if (n <= 0) { p.Closed = true; closesocket(p.S); break; }
+                    off += n;
+                }
+            }
+            // Schreibfehler: Lese-Thread bemerkt das geschlossene Socket und meldet Closed
+        }
+
+        /// <summary>Ordentlich beenden: Senden ist synchron (Daten sind im System-Puffer), dann Socket schliessen; Lese-Thread meldet Closed.</summary>
+        public void Close(int peer) { if (peers.TryGetValue(peer, out var p)) { Thread.Sleep(30); Finish(p, BtErr.SocketClosed); } }
+
+        public bool Poll(out TransportEvent e) => events.TryDequeue(out e);
 
         public void Stop()
         {
-            gen++; connected = false; Unregister();
+            gen++; listening = false; Unregister();
             if (listenSock != Invalid) { closesocket(listenSock); listenSock = Invalid; }
-            if (sock != Invalid) { closesocket(sock); sock = Invalid; }
-            while (inbox.TryDequeue(out _)) { }
-            status = "bereit";
+            foreach (var p in peers.Values) { lock (p.Lock) { p.Closed = true; p.Reported = true; closesocket(p.S); } }
+            peers.Clear(); while (events.TryDequeue(out _)) { }
+            Interlocked.Exchange(ref nextPeer, 1); status = "bereit";
         }
 
         // ---- SDP-Anmeldung des Dienstes (damit Android per UUID verbinden kann)

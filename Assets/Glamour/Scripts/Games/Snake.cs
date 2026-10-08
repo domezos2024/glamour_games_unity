@@ -13,36 +13,138 @@ namespace GlamourGames
         List<(int x, int y)> body = new List<(int x, int y)>(), prev = new List<(int x, int y)>(); (int x, int y) dir = (1, 0), next = (1, 0), food; int score, best; float speed = .17f, acc; bool running, dead, started; float deadT, eatT; readonly Queue<(int, int)> turns = new Queue<(int, int)>();
         // Duell: Computer-Schlange (pink), startet gegenueber
         List<(int x, int y)> body2 = new List<(int x, int y)>(), prev2 = new List<(int x, int y)>(); (int x, int y) dir2 = (-1, 0); int score2; bool dead1, dead2; int gen;
-        bool Duel => VsCpu || Remote;
-        // Bluetooth-Duell: der Host rechnet jeden Schritt, der Mitspieler meldet nur Richtungswechsel und erhaelt den Zustand (gespiegelt)
-        readonly Queue<(int x, int y)> turns2 = new Queue<(int x, int y)>(); Action netReset, netToggle;
-        bool NetClient => Remote && !Link.IsHost;
-        static string Cells(List<(int x, int y)> b) => string.Join(".", b.Select(c => c.x * N + c.y));
-        static List<(int x, int y)> Cells(string s) => s.Length == 0 ? new List<(int x, int y)>() : s.Split('.').Select(v => { int k = Link.Int(v); return (k / N, k % N); }).ToList();
-        public override void NetRecv(string kind, string[] a)
+        bool Duel => VsCpu;
+        // ---- Bluetooth (2-4 Schlangen, Host ist Autoritaet): Der Host rechnet jeden Schritt (fester Takt) und schickt nach jedem Schritt den
+        // kompletten Zustand ("st"); Gaeste senden nur Richtungswechsel ("dir") sowie Start/Pause ("toggle") und Neustart ("reset").
+        // Gaeste simulieren nichts, sie gleiten nur optisch zwischen zwei Zustaenden.
+        Action netReset, netToggle;
+        public override bool Seated => Remote;
+        static readonly Col[] SeatCol = { C.Green, C.Pink, C.Yellow, C.Cyan };
+        List<(int x, int y)>[] nb, np; (int x, int y)[] nd; bool[] na; int[] ns; Queue<(int x, int y)>[] nt; Chain[] nr; int nOver;   // nOver: 0 laeuft, 1 Unentschieden, 2+k Sieger k
+        bool netOverShown;
+        static string CellStr(List<(int x, int y)> b) => string.Join(".", b.Select(c => c.x * N + c.y));
+        static List<(int x, int y)> CellList(string s) => string.IsNullOrEmpty(s) ? new List<(int x, int y)>() : s.Split('.').Select(v => { int k = Link.Int(v); return (k / N, k % N); }).ToList();
+        /// <summary>Startaufstellung fuer k von n Schlangen (deterministisch, ueberschneidungsfrei).</summary>
+        static (List<(int x, int y)> cells, (int x, int y) dir) Spawn(int k) => k switch
+        {
+            0 => (new List<(int x, int y)> { (4, 3), (3, 3), (2, 3) }, (1, 0)),
+            1 => (new List<(int x, int y)> { (N - 5, N - 4), (N - 4, N - 4), (N - 3, N - 4) }, (-1, 0)),
+            2 => (new List<(int x, int y)> { (3, 8), (3, 7), (3, 6) }, (0, 1)),
+            _ => (new List<(int x, int y)> { (N - 4, 7), (N - 4, 8), (N - 4, 9) }, (0, -1))
+        };
+        void NetBuild(int n)
+        {
+            nb = new List<(int x, int y)>[n]; np = new List<(int x, int y)>[n]; nd = new (int x, int y)[n]; na = new bool[n]; ns = new int[n]; nt = new Queue<(int x, int y)>[n]; nr = new Chain[n];
+            for (int k = 0; k < n; k++) { var (cells, d) = Spawn(k); nb[k] = cells; np[k] = cells.ToList(); nd[k] = d; na[k] = true; nt[k] = new Queue<(int x, int y)>(); }
+        }
+        bool NetFree(int x, int y) { for (int k = 0; k < nb.Length; k++) if (na[k] && nb[k].Contains((x, y))) return false; return true; }
+        int NetFood()
+        {
+            var free = new List<int>(); for (int y = 0; y < N; y++) for (int x = 0; x < N; x++) if (NetFree(x, y)) free.Add(x * N + y);
+            return free.Count > 0 ? free[Rng.I(free.Count)] : food.x * N + food.y;
+        }
+        public override void NetIntent(int seat, string kind, string[] a)
+        {
+            if (nb == null) { if (kind == "reset") { NetBuild(Math.Max(2, Link.Count)); Emit("reset", NetFood()); } return; }
+            switch (kind)
+            {
+                case "dir": if (seat < nb.Length && na[seat] && a.Length > 1 && nOver == 0) { int x = Link.Int(a[0]), y = Link.Int(a[1]); if (Math.Abs(x) + Math.Abs(y) == 1 && nt[seat].Count < 3) nt[seat].Enqueue((x, y)); } break;
+                case "toggle": if (nOver == 0) Emit("run", started && running ? 0 : 1); else { NetBuild(Math.Max(2, Link.Count)); Emit("reset", NetFood()); } break;
+                case "reset": NetBuild(Math.Max(2, Link.Count)); Emit("reset", NetFood()); break;
+            }
+        }
+        public override void NetDelta(string kind, string[] a, bool priv)
         {
             switch (kind)
             {
-                case "dir": if (Link.IsHost && turns2.Count < 3) turns2.Enqueue((Link.Int(a[0]), Link.Int(a[1]))); break;
-                case "st": if (NetClient && !dead) ApplyState(a); break;
-                default: base.NetRecv(kind, a); break;
+                case "reset": { NetBuild(Math.Max(2, Link.Count)); int fk = a.Length > 0 ? Link.Int(a[0]) : 0; food = (fk / N, fk % N); NetReset(); break; }
+                case "run": running = a.Length > 0 && a[0] == "1"; started = true; acc = 0; Sfx.Play(S.Turn); break;
+                case "st": if (!Link.IsHost) ApplyNet(a); break;   // der Host hat den Schritt selbst gerechnet
             }
         }
-        void SendState(bool e1, bool e2, bool d1, bool d2)
+        void NetReset() { gen++; Modal = null; Fx.Clear(); running = false; started = false; dead = false; nOver = 0; netOverShown = false; acc = 0; speed = .17f; deadT = 0; }
+        string[] NetPayload()
         {
-            if (!Remote || !Link.IsHost) return;
-            Net("st", Cells(body), Cells(body2), food.x * N + food.y, score, score2, (e1 ? 1 : 0) + (e2 ? 2 : 0) + (d1 ? 4 : 0) + (d2 ? 8 : 0), dir.x, dir.y, dir2.x, dir2.y, Link.F(speed));
+            var l = new List<string> { nOver.ToString(), (food.x * N + food.y).ToString(), Link.F(speed), nb.Length.ToString() };
+            for (int k = 0; k < nb.Length; k++) { l.Add(na[k] ? "1" : "0"); l.Add(nd[k].x.ToString()); l.Add(nd[k].y.ToString()); l.Add(ns[k].ToString()); l.Add(CellStr(nb[k])); }
+            return l.ToArray();
         }
-        /// <summary>Mitspieler: Zustand des Hosts uebernehmen (eigene Schlange = Platz 2 des Hosts).</summary>
-        void ApplyState(string[] a)
+        public override string NetSnapshot(int seat) => nb == null ? "" : string.Join(";", NetPayload().Concat(new[] { running ? "1" : "0", started ? "1" : "0" }));
+        public override void NetApplySnapshot(string b)
         {
-            prev = body.ToList(); prev2 = body2.ToList(); body = Cells(a[1]); body2 = Cells(a[0]);
-            while (prev.Count < body.Count) prev.Add(prev.Count > 0 ? prev[prev.Count - 1] : body[prev.Count]);
-            while (prev2.Count < body2.Count) prev2.Add(prev2.Count > 0 ? prev2[prev2.Count - 1] : body2[prev2.Count]);
-            int fk = Link.Int(a[2]); food = (fk / N, fk % N); score = Link.Int(a[4]); score2 = Link.Int(a[3]); int fl = Link.Int(a[5]);
-            dir = (Link.Int(a[8]), Link.Int(a[9])); dir2 = (Link.Int(a[6]), Link.Int(a[7])); speed = Link.Flt(a[10]); acc = 0; running = true; started = true;
-            if ((fl & 2) != 0) EatFx(0); if ((fl & 1) != 0) EatFx(1);
-            if ((fl & 12) != 0) DieDuel((fl & 8) != 0, (fl & 4) != 0); else Sfx.Play(S.Tick, .12f);
+            var a = (b ?? "").Split(';'); if (a.Length < 6) return; int n = Link.Int(a[3]); if (n < 2 || n > 4 || a.Length < 4 + n * 5 + 2) return;
+            if (nb == null || nb.Length != n) NetBuild(n);
+            ApplyNet(a); running = a[4 + n * 5] == "1"; started = a[5 + n * 5] == "1";
+        }
+        /// <summary>Gast (und Host nach dem eigenen Schritt): Zustand uebernehmen, Tod/Fressen erkennen und darstellen.</summary>
+        void ApplyNet(string[] a)
+        {
+            if (a.Length < 4) return; int n = Link.Int(a[3]); if (n < 2 || n > 4 || a.Length < 4 + n * 5) return;
+            if (nb == null || nb.Length != n) NetBuild(n);
+            int fk = Link.Int(a[1]); food = (fk / N, fk % N); speed = Math.Max(.05f, Link.Flt(a[2])); int over = Link.Int(a[0]);
+            for (int k = 0; k < n; k++)
+            {
+                int o = 4 + k * 5; bool alive = a[o] == "1"; var nbNew = CellList(a[o + 4]); if (nbNew.Count == 0) continue;
+                np[k] = nb[k].ToList(); while (np[k].Count < nbNew.Count) np[k].Add(np[k].Count > 0 ? np[k][np[k].Count - 1] : nbNew[np[k].Count]);
+                int sc = Link.Int(a[o + 3]); bool ate = sc > ns[k];
+                if (!alive && na[k]) { nb[k] = np[k].Count > 0 ? np[k] : nbNew; nr[k] = Ragdoll(np[k].Take(Math.Max(3, np[k].Count)).ToList(), nd[k]); NetDie(k); }
+                else if (alive) nb[k] = nbNew;
+                if (ate && alive) NetEat(k);
+                nd[k] = (Link.Int(a[o + 1]), Link.Int(a[o + 2])); na[k] = alive; ns[k] = sc;
+            }
+            acc = 0; running = running || over == 0; started = true; nOver = over;
+            if (over != 0 && !netOverShown) { netOverShown = true; dead = true; running = false; deadT = 0; NetResult(over); }
+            else if (over == 0) Sfx.Play(S.Tick, .08f);
+        }
+        void NetDie(int k) { var hp = P(nb[k][0]); Sfx.Play(S.Die); App.Shake(12); App.Flash(C.Red, .25f); Fx.Burst(hp.X, hp.Y, 50, new[] { SeatCol[k], C.Red, Col.White }, 480); Fx.Explosion(hp.X, hp.Y, .9f); }
+        void NetEat(int k) { eatT = 0; Sfx.Play(S.Eat); var fc = nb[k].Count > 0 ? P(nb[k][0]) : P(food); Fx.Burst(fc.X, fc.Y, 24, new[] { C.Yellow, SeatCol[k], Col.White }, 260); Pop("+1", fc.X, fc.Y - 20, SeatCol[k].Light(.3f), 34); }
+        void NetResult(int over)
+        {
+            int w = over - 2; var col = w >= 0 ? SeatCol[w] : C.Gold; int g = gen;
+            string tab = string.Join("   |   ", Enumerable.Range(0, nb.Length).Select(k => $"{(PName(k).Length > 8 ? PName(k).Substring(0, 7) + "." : PName(k))}: {ns[k]}"));
+            Tm.After(.9f, () =>
+            {
+                if (g != gen) return;
+                if (w >= 0) { Celebrate(col, 4, 1f, $"{PName(w)} gewinnt!"); Sfx.Play(S.Big); }
+                Result(w < 0 ? "UNENTSCHIEDEN!" : $"{PName(w)} GEWINNT!", tab, col, new List<string> { w < 0 ? "Alle gecrasht!" : "Letzte überlebende Schlange" }, ("Nochmal", C.Green, netReset), ("Menü", C.Purple, () => App.Go(new Menu())));
+            });
+        }
+        /// <summary>Host: ein Schritt aller lebenden Schlangen; Kollisionen, Futter, Sieger; danach kompletter Zustand an alle.</summary>
+        void NetTick()
+        {
+            int n = nb.Length; var head = new (int x, int y)[n];
+            for (int k = 0; k < n; k++)
+            {
+                if (!na[k]) continue;
+                while (nt[k].Count > 0) { var t = nt[k].Dequeue(); if (!(t.x == -nd[k].x && t.y == -nd[k].y) && t != nd[k]) { nd[k] = t; break; } }
+                head[k] = (nb[k][0].x + nd[k].x, nb[k][0].y + nd[k].y);
+            }
+            int eater = -1; for (int k = 0; k < n; k++) if (na[k] && head[k] == food) { eater = k; break; }
+            var dead_ = new bool[n];
+            for (int k = 0; k < n; k++)
+            {
+                if (!na[k]) continue; var h = head[k]; bool d = Out(h);
+                for (int j = 0; j < n && !d; j++)
+                {
+                    if (!na[j]) continue;
+                    // der Schwanz rueckt nach, ausser die Schlange frisst; Kopf an Kopf toetet beide
+                    int len = nb[j].Count - (j == eater ? 0 : 1); if (nb[j].Take(Math.Max(0, len)).Contains(h)) d = true;
+                    if (j != k && head[j] == h) d = true;
+                    if (j != k && head[j] == nb[k][0] && h == nb[j][0]) d = true;
+                }
+                dead_[k] = d;
+            }
+            for (int k = 0; k < n; k++) np[k] = nb[k].ToList();
+            for (int k = 0; k < n; k++)
+            {
+                if (!na[k]) continue;
+                if (dead_[k]) { nr[k] = Ragdoll(nb[k], nd[k]); na[k] = false; NetDie(k); continue; }
+                nb[k].Insert(0, head[k]); if (k == eater && !dead_[k]) { ns[k]++; NetEat(k); } else nb[k].RemoveAt(nb[k].Count - 1);
+            }
+            if (eater >= 0 && !dead_[eater]) { speed = Math.Max(.095f, .17f - ns.Sum() * .003f); int fk = NetFood(); food = (fk / N, fk % N); }
+            int alive = na.Count(x => x); nOver = alive > 1 ? 0 : alive == 1 ? 2 + Array.IndexOf(na, true) : 1;
+            Emit("st", NetPayload().Cast<object>().ToArray());
+            if (nOver != 0 && !netOverShown) { netOverShown = true; dead = true; running = false; deadT = 0; NetResult(nOver); }
         }
         void EatFx(int who)
         {
@@ -53,7 +155,7 @@ namespace GlamourGames
         public override void Enter()
         {
             base.Enter(); best = Save.Int("sn_best", 0);
-            netReset = Shared("reset", Reset); netToggle = Shared("toggle", Toggle);
+            netReset = () => { if (Remote) Act("reset"); else Reset(); }; netToggle = () => { if (Remote) Act("toggle"); else Toggle(); };
             Ui.Add(new Button(40, 700, 260, 62, "Neustart", C.Green, () => netReset(), 24)); Ui.Add(new Button(40, 780, 260, 62, "Start / Pause", C.Cyan, () => netToggle(), 24));
             (string t, float x, float y, Key k)[] pad = { ("▲", 1360, 560, Key.Up), ("▼", 1360, 780, Key.Down), ("◀", 1250, 670, Key.Left), ("▶", 1470, 670, Key.Right) };
             foreach (var (t, x, y, k) in pad) { var kk = k; Ui.Add(new Button(x, y, 110, 110, t, C.Green, () => KeyDown(kk), 46) { Alpha = .6f }); }
@@ -63,10 +165,10 @@ namespace GlamourGames
         }
         void Reset()
         {
-            gen++; rag1 = rag2 = null; turns2.Clear(); body = new List<(int x, int y)> { (4, 8), (3, 8), (2, 8) }; prev = body.ToList(); dir = next = (1, 0); turns.Clear(); score = 0; speed = .17f; acc = 0; running = false; dead = false; started = false; Modal = null;
+            if (Remote) { if (Link.IsHost) { NetBuild(Math.Max(2, Link.Count)); Emit("reset", NetFood()); } return; }
+            gen++; rag1 = rag2 = null; body = new List<(int x, int y)> { (4, 8), (3, 8), (2, 8) }; prev = body.ToList(); dir = next = (1, 0); turns.Clear(); score = 0; speed = .17f; acc = 0; running = false; dead = false; started = false; Modal = null;
             score2 = 0; dead1 = dead2 = false; dir2 = (-1, 0);
             body2 = Duel ? new List<(int x, int y)> { (N - 5, N - 9), (N - 4, N - 9), (N - 3, N - 9) } : new List<(int x, int y)>(); prev2 = body2.ToList();
-            if (NetClient) { (body, body2) = (body2, body); (dir, dir2) = (dir2, dir); next = dir; prev = body.ToList(); prev2 = body2.ToList(); }
             PlaceFood();
         }
         void Toggle() { if (dead) { Reset(); return; } running = !running; started = true; Sfx.Play(S.Turn); }
@@ -81,8 +183,8 @@ namespace GlamourGames
             (int, int)? d = k switch { Key.Up or Key.W => (0, -1), Key.Down or Key.S => (0, 1), Key.Left or Key.A => (-1, 0), Key.Right or Key.D => (1, 0), _ => null };
             if (k == Key.Space || k == Key.Enter) { netToggle(); return; }
             if (d == null || dead) return;
-            if (NetClient) { if (!started) netToggle(); Net("dir", d.Value.Item1, d.Value.Item2); return; }
-            if (!running && !started) { if (Remote) netToggle(); else { running = true; started = true; } }
+            if (Remote) { if (!started) netToggle(); Act("dir", d.Value.Item1, d.Value.Item2); return; }
+            if (!running && !started) { running = true; started = true; }
             (int x, int y) last = turns.Count > 0 ? turns.Last() : dir; if (turns.Count < 3 && !(d.Value.Item1 == -last.x && d.Value.Item2 == -last.y) && d.Value != last) turns.Enqueue(d.Value);
         }
         Pt sw; bool swActive;
@@ -118,19 +220,17 @@ namespace GlamourGames
         /// <summary>Beide Schlangen ziehen gleichzeitig; wer gegen Wand/Koerper faehrt, verliert, Kopf an Kopf = Unentschieden.</summary>
         void TickDuel()
         {
-            if (Remote) { if (turns2.Count > 0) { var t2 = turns2.Dequeue(); if (!(t2.x == -dir2.x && t2.y == -dir2.y)) dir2 = t2; } }
-            else dir2 = SnakeAI.Decide(N, body2, dir2, body, food, (int)Opp, Rng.Shared);
+            dir2 = SnakeAI.Decide(N, body2, dir2, body, food, (int)Opp, Rng.Shared);
             prev2 = body2.ToList();
             var h1 = (x: body[0].x + dir.x, y: body[0].y + dir.y); var h2 = (x: body2[0].x + dir2.x, y: body2[0].y + dir2.y);
             bool e1 = h1 == food, e2 = h2 == food;
             bool d1 = Out(h1) || body.Take(body.Count - 1).Contains(h1) || body2.Take(body2.Count - (e2 ? 0 : 1)).Contains(h1);
             bool d2 = Out(h2) || body2.Take(body2.Count - 1).Contains(h2) || body.Take(body.Count - (e1 ? 0 : 1)).Contains(h2);
             if (h1 == h2 || (h1 == body2[0] && h2 == body[0])) d1 = d2 = true;
-            if (d1 || d2) { SendState(false, false, d1, d2); DieDuel(d1, d2); return; }
+            if (d1 || d2) { DieDuel(d1, d2); return; }
             body.Insert(0, h1); body2.Insert(0, h2);
             if (e1) Eat(0); else body.RemoveAt(body.Count - 1);
             if (e2) Eat(1); else body2.RemoveAt(body2.Count - 1);
-            SendState(e1, e2, false, false);
             Sfx.Play(S.Tick, .12f);
         }
         // Physik beim Crash: der Kopf prallt ab, der Koerper laeuft mit seiner Geschwindigkeit nach (Traegheit), staucht sich
@@ -174,9 +274,19 @@ namespace GlamourGames
         static Pt P((int x, int y) c) => new Pt(BX + c.x * CS + CS / 2, BY + c.y * CS + CS / 2);
         public override void Update(float dt)
         {
-            eatT += dt; if (dead) { deadT += dt; rag1?.Update(dt); rag2?.Update(dt); return; }
-            if (running && NetClient) acc = Math.Min(acc + dt, speed);   // Mitspieler: nur zwischen den Zustaenden des Hosts gleiten
-            else if (running) { acc += dt; while (acc >= speed && running) { acc -= speed; Tick(); } }
+            eatT += dt;
+            if (Remote)
+            {
+                if (nb == null) return;
+                if (nr != null) foreach (var r in nr) r?.Update(dt);
+                if (dead) { deadT += dt; return; }
+                if (running && Link.IsHost) { acc += dt; while (acc >= speed && running) { acc -= speed; NetTick(); } }
+                else if (running) acc = Math.Min(acc + dt, speed);   // Gaeste: nur zwischen den Zustaenden des Hosts gleiten
+                if (running) for (int k = 0; k < nb.Length; k++) if (na[k] && Rng.F() < dt * 20) { var h = Pos(nb[k], np[k], 0); Fx.Spark(h.X, h.Y, SeatCol[k], 1, 30); }
+                return;
+            }
+            if (dead) { deadT += dt; rag1?.Update(dt); rag2?.Update(dt); return; }
+            if (running) { acc += dt; while (acc >= speed && running) { acc -= speed; Tick(); } }
             if (running && Rng.F() < dt * 30) { var h = Pos(body, prev, 0); Fx.Spark(h.X, h.Y, C.Green, 1, 30); }
             if (running && Duel && body2.Count > 0 && Rng.F() < dt * 30) { var h = Pos(body2, prev2, 0); Fx.Spark(h.X, h.Y, C.Pink, 1, 30); }
         }
@@ -187,7 +297,13 @@ namespace GlamourGames
         }
         public override void Draw(Canvas2D c)
         {
-            if (Duel)
+            if (Remote)
+            {
+                if (nb == null) { Gfx.Text(c, Link.IsHost ? "Spiel startet ..." : "Warte auf den Host ...", 800, 450, 34, C.Cyan, Al.C, true, 6); return; }
+                int n = nb.Length;
+                for (int k = 0; k < n; k++) W.PlayerBox(c, Gfx.R(40, 140 + k * 118, 260, 110), PName(k), na[k] ? ns[k].ToString() : ns[k] + " x", SeatCol[k], running && na[k], Time, null);
+            }
+            else if (Duel)
             {
                 W.PlayerBox(c, Gfx.R(40, 140, 260, 200), PName(0), score.ToString(), C.Green, running && !dead1, Time, $"Länge {body.Count}");
                 W.PlayerBox(c, Gfx.R(40, 370, 260, 200), PName(1), score2.ToString(), C.Pink, running && !dead2, Time, $"Länge {body2.Count}");
@@ -206,12 +322,16 @@ namespace GlamourGames
             var fp = P(food); float pl = 1 + .12f * MathF.Sin(Time * 6);
             Gfx.Light(c, fp.X, fp.Y, CS * 1.4f, C.Yellow, .4f * pl, 1.6f); Gfx.Ball(c, fp.X, fp.Y, CS * .32f * pl, C.Yellow.Mix(C.Orange, .3f)); Gfx.Star(c, fp.X + MathF.Cos(Time * 3) * CS * .5f, fp.Y + MathF.Sin(Time * 3) * CS * .5f, 5, C.White.A(.8f), Time);
             float fade1 = dead1 ? Math.Max(0, 1 - deadT * .8f) : 1, fade2 = dead2 ? Math.Max(0, 1 - deadT * .8f) : 1;
-            if (Duel && body2.Count > 0) DrawSnake(c, body2, prev2, dir2, C.Pink, Pink2, fade2, dead2 ? rag2 : null);
-            DrawSnake(c, body, prev, dir, C.Green, new Col(0, 120, 90), fade1, dead1 ? rag1 : null);
+            if (Remote) { for (int k = nb.Length - 1; k >= 0; k--) DrawSnake(c, nb[k], np[k], nd[k], SeatCol[k], SeatCol[k].Dark(.5f), na[k] ? 1 : Math.Max(0, 1 - deadT * .8f), na[k] ? null : nr[k]); }
+            else
+            {
+                if (Duel && body2.Count > 0) DrawSnake(c, body2, prev2, dir2, C.Pink, Pink2, fade2, dead2 ? rag2 : null);
+                DrawSnake(c, body, prev, dir, C.Green, new Col(0, 120, 90), fade1, dead1 ? rag1 : null);
+            }
             if (!started && !dead)
             {
-                Gfx.Rect(c, Gfx.Ctr(800, 460, 640, Duel ? 170 : 130), 24, Col.Black.A(.6f)); Gfx.Text(c, Platform.Pick("Pfeiltasten / WASD oder Kreuz", "Wischen oder Steuerkreuz"), 800, 435, 34, Col.White, Al.C, true, 6); Gfx.Text(c, "Leertaste = Start / Pause", 800, 485, 26, C.Dim, Al.C, false);
-                if (Duel) Gfx.Text(c, "Duell: Wer zuerst crasht, verliert!", 800, 525, 24, C.Pink.Light(.3f), Al.C, true, 4);
+                Gfx.Rect(c, Gfx.Ctr(800, 460, 640, Duel || Remote ? 170 : 130), 24, Col.Black.A(.6f)); Gfx.Text(c, Platform.Pick("Pfeiltasten / WASD oder Kreuz", "Wischen oder Steuerkreuz"), 800, 435, 34, Col.White, Al.C, true, 6); Gfx.Text(c, "Leertaste = Start / Pause", 800, 485, 26, C.Dim, Al.C, false);
+                if (Duel || Remote) Gfx.Text(c, Remote ? "Letzte überlebende Schlange gewinnt!" : "Duell: Wer zuerst crasht, verliert!", 800, 525, 24, C.Pink.Light(.3f), Al.C, true, 4);
             }
             else if (!running && !dead) Gfx.Text(c, "PAUSE", 800, 460, 80, C.Yellow, Al.C, true, 20);
         }

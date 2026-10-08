@@ -6,24 +6,26 @@ using UnityEngine.Android;
 
 namespace GlamourGames
 {
-    /// <summary>Bluetooth-Transport auf Android ueber das Java-Plugin de.domezosware.glamourgames.GlamourBt.</summary>
+    /// <summary>Bluetooth-Transport auf Android ueber das Java-Plugin de.domezosware.glamourgames.GlamourBt (Mehr-Verbindungs-Variante).</summary>
     sealed class AndroidBt : IBtTransport
     {
-        const string Connect = "android.permission.BLUETOOTH_CONNECT";
-        readonly AndroidJavaObject j; readonly int sdk; string err;
+        const string Connect_ = "android.permission.BLUETOOTH_CONNECT";
+        readonly AndroidJavaObject j; readonly int sdk; string err; bool listening;
         public AndroidBt()
         {
-            try { sdk = new AndroidJavaClass("android.os.Build$VERSION").GetStatic<int>("SDK_INT"); j = new AndroidJavaObject("de.domezosware.glamourgames.GlamourBt"); }
+            try { sdk = new AndroidJavaClass("android.os.Build$VERSION").GetStatic<int>("SDK_INT"); j = new AndroidJavaObject("de.domezosware.glamourgames.GlamourBt"); j.Call("setMaxPeers", MaxPeers); }
             catch (Exception e) { err = e.Message; Log.I("bluetooth: Plugin fehlt: " + e.Message); }
         }
         public bool Supported => j != null && j.Call<bool>("supported");
         public bool Enabled => j != null && j.Call<bool>("enabled");
-        public bool Connected => j != null && j.Call<bool>("isConnected");
+        public int MaxPeers => 3;
+        public bool Listening => listening && j != null && j.Call<bool>("listening");
+        public BtErr LastError => j == null ? BtErr.NoAdapter : (BtErr)j.Call<int>("lastError");
         public string Status => j == null ? "Bluetooth nicht verfügbar" + (err != null ? ": " + err : "") : !Enabled ? "Bluetooth ist ausgeschaltet" : j.Call<string>("status");
         public bool EnsurePermission()
         {
-            if (sdk < 31 || Permission.HasUserAuthorizedPermission(Connect)) return true;
-            Permission.RequestUserPermission(Connect); return false;
+            if (sdk < 31 || Permission.HasUserAuthorizedPermission(Connect_)) return true;
+            Permission.RequestUserPermission(Connect_); return false;
         }
         public List<BtDev> Paired()
         {
@@ -37,11 +39,24 @@ namespace GlamourGames
         }
         public void Scan() { if (j != null && EnsurePermission()) j.Call("scan"); }
         public string LocalName => j == null ? null : j.Call<string>("localName");
-        public void Host() => j?.Call("host");
-        public void Join(string addr) => j?.Call("join", addr);
-        public void Stop() => j?.Call("stop");
-        public void Send(string line) => j?.Call("send", line);
-        public bool Poll(out string line) { line = j?.Call<string>("poll"); return line != null; }
+        public void StartHost() { listening = true; j?.Call("startHost"); }
+        public void Connect(string addr) { listening = false; j?.Call("connect", addr); }
+        public void Stop() { listening = false; j?.Call("stop"); }
+        public void Send(int peer, string line) => j?.Call("send", peer, line);
+        public void Close(int peer) => j?.Call("close", peer);
+        public bool Poll(out TransportEvent e)
+        {
+            e = default; var s = j?.Call<string>("poll"); if (s == null) return false;
+            // C|peer|name|addr   L|peer|zeile   X|peer|code|text
+            var a = s.Split(new[] { '|' }, 4); int peer = a.Length > 1 ? WireUtil.Int(a[1]) : 0;
+            switch (a[0])
+            {
+                case "C": var b = s.Split(new[] { '|' }, 4); e = TransportEvent.Conn(peer, b.Length > 2 ? b[2] : "", b.Length > 3 ? b[3] : ""); return true;
+                case "L": e = TransportEvent.Data(peer, a.Length > 2 ? (a.Length > 3 ? a[2] + "|" + a[3] : a[2]) : ""); return true;
+                case "X": e = TransportEvent.Close(peer, a.Length > 2 ? (BtErr)WireUtil.Int(a[2]) : BtErr.Unknown, a.Length > 3 ? a[3] : null); return true;
+            }
+            return Poll(out e);
+        }
     }
 }
 #endif

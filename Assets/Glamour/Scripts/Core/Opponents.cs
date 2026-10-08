@@ -84,7 +84,7 @@ namespace GlamourGames
             b.Custom = (c, r, hv) =>
             {
                 Gfx.Text(c, "GEGNER", r.MidX, r.Top + 18, 15, C.Dim, Al.C, true);
-                Gfx.Text(c, s.Opp == Opponent.Human ? humanLabel : s.Remote ? "Bluetooth · " + Link.PeerName : "Computer · " + Label(s.Opp), r.MidX, r.MidY + 9, 22, Col.White, Al.C, true, 3 * hv);
+                Gfx.Text(c, s.Opp == Opponent.Human ? humanLabel : s.Remote ? "Bluetooth · " + (Link.Count > 2 ? Link.Count + " Spieler" : Link.PeerName) : "Computer · " + Label(s.Opp), r.MidX, r.MidY + 9, 22, Col.White, Al.C, true, 3 * hv);
                 return true;
             };
             return b;

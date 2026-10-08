@@ -335,8 +335,10 @@ namespace GlamourGames
             try
             {
                 Link.Update();
-                cur.BaseUpdate(dt);
+                bool frozen = Link.Frozen && (cur.Seated || cur.Remote);
+                if (!frozen) cur.BaseUpdate(dt);
                 cur.BaseDraw(canvas);
+                if (frozen) Link.DrawFrozen(canvas, cur.Time); else if (cur.Seated) Link.DrawStatus(canvas);
                 if (cur.Chrome) DrawChrome(canvas);
             }
             catch (Exception e) { Debug.LogException(e); canvas.Begin(); }

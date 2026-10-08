@@ -6,24 +6,26 @@ namespace GlamourGames
 {
     public sealed class GameInfo
     {
-        public string Name, Sub; public Col Col; public Func<Scene> Make;
-        public GameInfo(string name, string sub, Col col, Func<Scene> make) { Name = name; Sub = sub; Col = col; Make = make; }
+        /// <summary>Stabile Kennung (Netzwerkprotokoll, gleich OppKey der Szene), Name, Untertitel; Min/MaxSeats = erlaubte Spielerzahl im Bluetooth-Spiel.</summary>
+        public string Id, Name, Sub; public Col Col; public Func<Scene> Make; public int MinSeats = 2, MaxSeats = 2;
+        public GameInfo(string id, string name, string sub, Col col, Func<Scene> make, int minSeats = 2, int maxSeats = 2) { Id = id; Name = name; Sub = sub; Col = col; Make = make; MinSeats = minSeats; MaxSeats = maxSeats; }
     }
     public static class Registry
     {
         public static readonly List<GameInfo> All = new List<GameInfo>
         {
-            new GameInfo("Memory", "Paare finden", C.Purple, () => new MemoryGame()),
-            new GameInfo("Tic Tac Toe", "Best of 3 Runden", C.Cyan, () => new TicTacToe()),
-            new GameInfo("Vier Gewinnt", "Diskus-Duell", C.Blue, () => new ConnectFour()),
-            new GameInfo("Schiffe Versenken", "Flotten-Gefecht", C.Blue.Mix(C.Cyan, .4f), () => new Battleship()),
-            new GameInfo("Snake", "Neon-Schlangen-Duell", C.Green, () => new SnakeGame()),
-            new GameInfo("Kniffel", "3D-Würfelpoker", C.Red, () => new Kniffel()),
-            new GameInfo("Nim", "Wer den letzten nimmt", C.Orange, () => new Nim()),
-            new GameInfo("Buch der Pharaonen", "Slot mit Freispielen", C.Gold, () => new SlotGame()),
-            new GameInfo("Black Jack", "2 Spieler gegen die Bank", C.Pink, () => new Blackjack()),
-            new GameInfo("Poker", "Texas Hold'em No Limit", C.Magenta, () => new Poker()),
+            new GameInfo("memory", "Memory", "Paare finden", C.Purple, () => new MemoryGame(), 2, 4),
+            new GameInfo("ttt", "Tic Tac Toe", "Best of 3 Runden", C.Cyan, () => new TicTacToe()),
+            new GameInfo("c4", "Vier Gewinnt", "Diskus-Duell", C.Blue, () => new ConnectFour()),
+            new GameInfo("ships", "Schiffe Versenken", "Flotten-Gefecht", C.Blue.Mix(C.Cyan, .4f), () => new Battleship()),
+            new GameInfo("snake", "Snake", "Neon-Schlangen-Duell", C.Green, () => new SnakeGame(), 2, 4),
+            new GameInfo("kniffel", "Kniffel", "3D-Würfelpoker", C.Red, () => new Kniffel(), 2, 4),
+            new GameInfo("nim", "Nim", "Wer den letzten nimmt", C.Orange, () => new Nim()),
+            new GameInfo("slot", "Buch der Pharaonen", "Slot mit Freispielen", C.Gold, () => new SlotGame()),
+            new GameInfo("bj", "Black Jack", "2–4 Spieler gegen die Bank", C.Pink, () => new Blackjack(), 2, 4),
+            new GameInfo("poker", "Poker", "Texas Hold'em No Limit", C.Magenta, () => new Poker(), 2, 4),
         };
+        public static GameInfo ById(string id) { foreach (var g in All) if (g.Id == id) return g; return null; }
     }
     public class Menu : Scene
     {
@@ -65,7 +67,7 @@ namespace GlamourGames
         void Launch(int i)
         {
             if (Link.Connected && !Link.IsHost) { App.Toast($"{Link.PeerName} wählt das Spiel"); return; }
-            Sfx.Play(S.Click); if (Link.Connected) Link.Go(i); App.Go(Registry.All[i].Make());
+            Sfx.Play(S.Click); if (Link.Connected) { Link.Start(Registry.All[i]); return; } App.Go(Registry.All[i].Make());
         }
         public override void KeyDown(Key k)
         {
@@ -83,7 +85,7 @@ namespace GlamourGames
                 p.Shader = Grad.Linear(-w / 2 + sw, -40, w / 2 + sw, 40, new Col(255, 250, 200), C.Orange); Gfx.TextPaint(c, t, 0, 0, 96, p, Al.C, true, true);
             }
             c.Restore();
-            if (Link.Connected) Gfx.Text(c, Link.IsHost ? $"Bluetooth: verbunden mit {Link.PeerName}  ·  wähle ein Spiel, {Link.PeerName} spielt an seinem Gerät mit" : $"Bluetooth: verbunden mit {Link.PeerName}  ·  {Link.PeerName} wählt das Spiel ...", 800, 168, 22, C.Green.Light(.4f), Al.C, true);
+            if (Link.Connected) Gfx.Text(c, Link.IsHost ? $"Bluetooth: {Link.Count} Spieler verbunden  ·  wähle ein Spiel, alle spielen an ihrem Gerät mit" : $"Bluetooth: {Link.Count} Spieler verbunden  ·  {Link.Name(0)} wählt das Spiel ...", 800, 168, 22, C.Green.Light(.4f), Al.C, true);
             else Gfx.Text(c, Platform.Pick("10 Spiele  ·  zu zweit, per Bluetooth oder gegen den Computer  ·  Zifferntasten starten direkt", "10 Spiele  ·  zu zweit, per Bluetooth oder gegen den Computer  ·  Kachel antippen zum Starten"), 800, 168, 22, C.Dim, Al.C, false);
             for (int i = 0; i < 10; i++)
             {

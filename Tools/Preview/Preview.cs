@@ -70,9 +70,24 @@ namespace GlamourGames
             FontAtlas.Load(); Assets.Load();
 
             // Mehrspieler-Test: TCP statt Bluetooth, Host/Mitspieler verbinden sich vor dem Start
-            if (net != null) { var nv = net.Split(':'); Link.T = new TcpBt(int.Parse(nv[1])); if (nv[0] == "host") Link.Host(); else Link.Join("127.0.0.1"); realtime = true; for (int w = 0; w < 300 && !Link.Connected; w++) { Link.Update(); System.Threading.Thread.Sleep(16); } }
+            // Mehrspieler-Test: --net=host:PORT[:SITZE] bzw. --net=join:PORT; TCP statt Bluetooth. Host wartet auf SITZE Spieler, gaeste sind sofort bereit,
+            // der Host startet das Spiel (--scene=Index) ueber die echte Sitzungslogik; alle Prozesse landen in derselben Partie.
+            Scene started = null;
+            if (net != null)
+            {
+                var nv = net.Split(':'); int port = int.Parse(nv[1]), seats = nv.Length > 2 ? int.Parse(nv[2]) : 2; bool isHost = nv[0] == "host"; realtime = true;
+                Link.T = new TcpBt(port); Link.Init(); if (Environment.GetEnvironmentVariable("GLAMOUR_NETLOG") != null) Link.Sess.Log = m => Console.WriteLine("net: " + m); if (isHost) Link.Host(); else Link.Join("127.0.0.1"); bool ready = false;
+                for (int w = 0; w < 2000 && App.Pending == null; w++)
+                {
+                    Link.Update(); System.Threading.Thread.Sleep(16); var ss = Link.Sess;
+                    if (isHost) { if (ss.State == RoomState.Lobby && ss.Count >= seats && ss.AllReady && w % 30 == 0 && scene != "lobby") Link.Start(Registry.All[int.Parse(scene)]); }
+                    else if (ss.State == RoomState.Lobby && ss.MySeat > 0 && !ready) { Link.SetReady(true); ready = true; }
+                    if (scene == "lobby" && ss.State == RoomState.Lobby && w > 150 && (isHost ? ss.Count >= seats && ss.AllReady : ready)) break;
+                }
+                started = App.Pending; App.Pending = null; Console.WriteLine($"Sitzung: Sitz {Link.MySeat}, {Link.Count} Spieler, Partie {(started != null ? started.GetType().Name : "KEINE")}");
+            }
             if (net == null && scene == "lobby") Link.T = new TcpBt(47999);   // Geraeteliste zeigen
-            Scene cur = scene == "menu" ? new Menu() : scene == "options" ? new Options() : scene == "lobby" ? new BtLobby() : Registry.All[int.Parse(scene)].Make();
+            Scene cur = started != null ? started : scene == "menu" ? new Menu() : scene == "options" ? new Options() : scene == "lobby" ? new BtLobby() : Registry.All[int.Parse(scene)].Make();
             App.Current = cur; cur.Enter();
             var events = new List<(float t, string a, string p1, string p2)>();
             foreach (var e in script.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
@@ -97,7 +112,7 @@ namespace GlamourGames
                         if (ev.a == "win") { cur.Modal = null; cur.Celebrate(ev.p1 == "p" ? C.Pink : C.Cyan, 5, ev.p2 == "" ? 1.1f : F(ev.p2), "Spieler 1 gewinnt!"); }
                         if (ev.a == "bigwin") { cur.Modal = null; cur.Celebrate(C.Gold, 5, 1.2f); }
                         if (ev.a == "res") cur.Result("Spieler 1 gewinnt!", "Stand: 3 : 1", ev.p1 == "p" ? C.Pink : C.Cyan, ("Nochmal", C.Green, null), ("Menü", C.Purple, null));
-                        if (ev.a == "s") { Render(canvas, cur, outp.Replace(".png", $"_{shot++}.png")); }
+                        if (ev.a == "s") { Render(canvas, cur, outp.Replace(".png", $"_{shot++}.png")); Dump(cur, t); }
                     }
                     catch (Exception x) { Console.WriteLine("event error: " + x); }
                 }
@@ -113,6 +128,21 @@ namespace GlamourGames
             int tris = Render(canvas, cur, outp);
             Console.WriteLine($"{outp}: {canvas.VertexCount} Vertices, {tris} Dreiecke, {sw.ElapsedMilliseconds} ms, Partikel {cur.Fx.Count}");
             return 0;
+        }
+        /// <summary>Pruefhilfe (GLAMOUR_DUMP=1): gibt fuer Poker aus, welche Hole Cards dieser Prozess ueberhaupt kennt.</summary>
+        static void Dump(Scene cur, float t)
+        {
+            if (Environment.GetEnvironmentVariable("GLAMOUR_DUMP") == null || cur.GetType().Name != "Poker") return;
+            var f = cur.GetType().GetField("pl", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance); var arr = (Array)f.GetValue(cur);
+            var sb = new System.Text.StringBuilder($"DUMP t={t:0} mySeat={cur.MySeat}");
+            for (int i = 0; i < arr.Length; i++)
+            {
+                var o = arr.GetValue(i); var ty = o.GetType(); bool known = (bool)ty.GetField("Known").GetValue(o); var hole = (System.Collections.IEnumerable)ty.GetField("Hole").GetValue(o); var codes = new List<string>();
+                foreach (PokerCard c in hole) codes.Add(c.Code.ToString());
+                sb.Append($" | {i}:{(known ? "bekannt" : "verdeckt")}[{string.Join(",", codes)}]");
+            }
+            var sa = (bool)cur.GetType().GetField("showAll", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(cur); sb.Append(" showAll=" + sa);
+            Console.WriteLine(sb.ToString());
         }
         static float F(string s) => float.Parse(s, CultureInfo.InvariantCulture);
         static void Move(Scene cur) { if (cur.Modal != null) cur.Modal.Move(App.MX, App.MY); else { cur.Ui.Move(App.MX, App.MY); cur.MouseMove(App.MX, App.MY); } }

@@ -17,7 +17,7 @@ namespace GlamourGames
         readonly List<(string s, float x, float y, Col c, float t, float size)> pops = new List<(string, float, float, Col, float, float)>();
         public void Pop(string s, float x, float y, Col c, float size = 40) => pops.Add((s, x, y, c, 0, size));
         public virtual void Enter() { Log.I("enter " + GetType().Name); if (Chrome) Back = Ui.Add(new Button(24, 14, 260, 84, "<  Menü", C.Purple, () => App.Go(new Menu()), 32)); }
-        public virtual void Leave() { Log.I("leave " + GetType().Name); if (Remote && Link.Connected) { if (Link.IsHost) Link.BackToMenu(); else if (!Link.HostDriven) Net("left"); } Link.HostDriven = false; }
+        public virtual void Leave() { Log.I("leave " + GetType().Name); if ((Remote || Seated) && Link.InGame) { if (Link.IsHost) Link.BackToMenu(); else if (!Link.HostDriven) Link.LeaveGame(); } Link.HostDriven = false; }
         public virtual void Update(float dt) { }
         public abstract void Draw(Canvas2D c);
         public virtual void MouseMove(float x, float y) { }
@@ -39,7 +39,7 @@ namespace GlamourGames
         /// <summary>Gegner spielt per Bluetooth an einem anderen Geraet (sitzt auf Platz 2, jedes Geraet sieht sich als Spieler 1).</summary>
         public bool Remote => Opp == Opponent.Remote;
         /// <summary>Name fuer Platz i (0 oder 1); Platz 2 heisst "Computer", wenn der Computer spielt, bzw. wie der Bluetooth-Mitspieler.</summary>
-        public string PName(int i) => Remote ? (i == 1 ? Link.PeerName : Link.MyName) : i == 1 && VsCpu ? Opponents.CpuName(Opp) : Pl.Name(i);
+        public string PName(int i) => Remote ? (Seated ? Link.Name(i) : i == 1 ? Link.PeerName : Link.MyName) : i == 1 && VsCpu ? Opponents.CpuName(Opp) : Pl.Name(i);
 
         // ---------------------------------------------------------------- Bluetooth-Mehrspieler
         /// <summary>Spielnachricht an den Mitspieler (nur im Bluetooth-Spiel).</summary>
@@ -69,6 +69,26 @@ namespace GlamourGames
                 case "left": App.Toast($"{Link.PeerName} hat das Spiel verlassen"); App.Go(new Menu()); break;
             }
         }
+        // ---- Sitzspiele (2 bis 4 Spieler, Host ist Autoritaet)
+        /// <summary>true = Spiel nutzt Act/NetIntent/NetDelta/Snapshots statt des einfachen Relays Net/NetRecv.</summary>
+        public virtual bool Seated => false;
+        /// <summary>Eigener Sitz (0 = Host) und Spielerzahl im Bluetooth-Spiel; ohne Verbindung Sitz 0, ein Spieler.</summary>
+        public int MySeat => Seated && Link.Connected ? Link.MySeat : 0;
+        public int SeatCount => Seated && Link.Connected ? Link.Count : 1;
+        /// <summary>Sitzspiel: Eingabeabsicht des eigenen Sitzes. Gast: an den Host; Host: direkt an NetIntent(0, ...).</summary>
+        protected void Act(string kind, params object[] data) { if (OppKey != null) Link.Intent(OppKey, kind, data); }
+        /// <summary>Sitzspiel, nur Host: Zustandsaenderung an alle (auch lokal als NetDelta).</summary>
+        protected void Emit(string kind, params object[] data) { if (OppKey != null) Link.Emit(OppKey, kind, data); }
+        /// <summary>Sitzspiel, nur Host: nur fuer einen Sitz bestimmte Information (z. B. verdeckte Karten).</summary>
+        protected void EmitTo(int seat, string kind, params object[] data) { if (OppKey != null) Link.EmitTo(seat, OppKey, kind, data); }
+        /// <summary>Host: Eingabe eines Sitzes pruefen und ausfuehren (per Emit verbreiten). Wird nur auf dem Host aufgerufen.</summary>
+        public virtual void NetIntent(int seat, string kind, string[] a) { }
+        /// <summary>Alle: Zustandsaenderung des Hosts anwenden (priv = nur fuer diesen Sitz bestimmt).</summary>
+        public virtual void NetDelta(string kind, string[] a, bool priv) { }
+        /// <summary>Host: kompletter Zustand fuer einen Sitz (Beitritt, Wiederverbindung, Luecke).</summary>
+        public virtual string NetSnapshot(int seat) => "";
+        /// <summary>Gast: kompletten Zustand uebernehmen.</summary>
+        public virtual void NetApplySnapshot(string blob) { }
         /// <summary>Verbindung abgerissen: zurueck ins Menue.</summary>
         public virtual void NetLost() { if (Remote) { Opp = Opponent.Human; App.Go(new Menu()); } }
         /// <summary>Laesst den Computer "nachdenken" (Anzeige + Verzoegerung) und fuehrt dann die Aktion aus.</summary>
