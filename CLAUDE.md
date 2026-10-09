@@ -2,7 +2,7 @@
 
 ## Pfade
 - Lokaler Klon auf dem PC: `E:\source\repos\glamour_games_unity`
-- Schwester-Repo Android: `domezos2024/glamour_games_unity_android` (PC: `E:\AndroidStudioProjects\glamour_games_unity_android`)
+- Schwester-Repo Android: [`domezos2024/glamour_games_unity_android`](https://github.com/domezos2024/glamour_games_unity_android) (PC: `E:\AndroidStudioProjects\glamour_games_unity_android`)
 
 ## Gleichstand mit Android
 - `Assets/Glamour/Scripts`, `Assets/Plugins`, `Tools/Preview`, `docs/ENGINE.md` sind in beiden Repos identisch (plattformneutral ueber `Platform.Touch` und `#if`). Aenderungen immer in beiden Repos nachziehen.
@@ -16,10 +16,11 @@
 - Beitrittsliste zeigt nur PCs/Handys mit Adress-Kurzform; gruen = Geraet bietet den Glamour-Dienst an (Android: `getUuids`, Auffrischen per `fetchUuidsWithSdp`). Veraltete gleichnamige Kopplungen (z. B. `MB_CUBE` ...7D:02) fuehren sonst zu PAGE_TIMEOUT.
 - Vorschau: `--scene=lobby` zeigt die Bluetooth-Seite mit Testgeraeten; mit `--net=` wartet die Vorschau vor dem Szenenstart auf die Verbindung.
 
-## Vier-Spieler-Bluetooth (Branch feature/vier-spieler-bluetooth)
+## Vier-Spieler-Bluetooth (in main seit PR #11)
 - Netzkern in `Core/Net`: `Wire.cs` (Umschlag GL2), `Transport.cs` (Mehr-Peer-Schnittstelle), `Session.cs` (Sitze, Intent/Delta/Snapshot, Reconnect 45 s), `Link.cs` (Fassade). Host ist alleinige Autoritaet, Pokerkarten nur per `EmitTo`.
 - `WinBt.cs`: Accept-Schleife bis 3 Gaeste, ein Lese-Thread je Peer, SDP-Dienst bleibt bis zum Stoppen angemeldet.
 - Konsolentests: `cd Tools\Tests; dotnet run -c Release` (erwartet 251 Pruefungen, 0 Fehler).
 - Mehrprozess-Vorschau (Poker, 4 Sitze): `--scene=9 --net=host:47123:4` plus 3x `--net=join:47123`; `GLAMOUR_DUMP=1` zeigt bekannte Hole Cards.
 - Sitzspiele: Memory, Kniffel, Snake, Blackjack, Poker (2-4); die uebrigen bleiben im Relay-Modus mit 2 Sitzen.
-- Aenderungen weiterhin in beiden Repos nachziehen.
+- Dokumente zum Thema: `docs/Mehrspieler-Spezifikation.md` (Regeln, Matrix, Review-Checkliste), `ChatGPT-Verbesserungen.md` (Analyse, Plan, Verifikationsstand), `dies-für-windows-version.md` (Uebertragungs-Checkliste Android -> Windows).
+- Aenderungen weiterhin in beiden Repos nachziehen (inkl. `docs/`, `Tools/Tests`).

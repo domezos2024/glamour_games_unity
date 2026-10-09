@@ -1,6 +1,6 @@
 # Mehrspieler (2–4 Spieler, Bluetooth): Regeln, Matrix, Messziele, Review-Checkliste
 
-Stand: Branch `feature/vier-spieler-bluetooth`. Gilt für Android und Windows gleichermaßen.
+Stand: 08.10.2026, in `main` (Windows PR #11). Gilt für Android und Windows gleichermaßen; identisch im Schwester-Repo [glamour_games_unity_android](https://github.com/domezos2024/glamour_games_unity_android).
 
 ## 1. Spielregeln für 2, 3 und 4 Menschen (1.2)
 
@@ -25,10 +25,10 @@ Legende: `S` = Simulation/Mehrprozess über TCP (echter Session-/Link-/Szenencod
 | Verbindung | 2 Teilnehmer | 3 Teilnehmer | 4 Teilnehmer |
 |---|---|---|---|
 | Android ↔ Android | S (Protokoll), G offen | S, G offen | S, G offen |
-| Android ↔ Windows | G (frühere 2-Spieler-Version), neue Version offen | – | – |
-| Windows ↔ Windows | – | – | – |
+| Android ↔ Windows | G (08.10.2026: PC als Host, Pixel 10 als Gast, Lobby und Poker-Start); weitere Spiele offen | - | - |
+| Windows ↔ Windows | S (Vorschau-Prozesse über TCP), G offen | S (Poker: Host + 3 Gäste = 4 Sitze), G offen | S, G offen |
 
-Stand der Prüfungen: 195 automatische Protokollprüfungen (Konsolentests), Mehrprozess-Läufe Memory (3), Kniffel (3), Snake (4), Blackjack (3), Poker (3 und 4) mit identischem öffentlichem Zustand. Echte Bluetooth-Läufe mit 3–4 Geräten stehen aus.
+Stand der Prüfungen: 251 automatische Prüfungen (Netzkern, Transportvertrag, Poker-Regeln) (Konsolentests), Mehrprozess-Läufe Memory (3), Kniffel (3), Snake (4), Blackjack (3), Poker (3 und 4) mit identischem öffentlichem Zustand. Echte Bluetooth-Läufe mit 3–4 Geräten stehen aus.
 
 ## 3. Messziele (1.4)
 
