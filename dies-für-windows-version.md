@@ -1,6 +1,6 @@
 # Vier-Spieler-Bluetooth: Übertragung auf die Windows-Version
 
-Dieses Dokument wird **laufend** mit der Android-Umsetzung (Repo `glamour_games_unity_android`, Branch `feature/vier-spieler-bluetooth`) fortgeschrieben.
+Dieses Dokument wird **laufend** mit der Android-Umsetzung (Repo [`glamour_games_unity_android`](https://github.com/domezos2024/glamour_games_unity_android), Branch `feature/vier-spieler-bluetooth`) fortgeschrieben.
 Ziel: dieselben Änderungen in `glamour_games_unity` (Windows) nachziehen. Jeder Schritt ist abhakbar.
 
 Grundregel: Dateien unter `Assets/Glamour/Scripts/Core/Net/` und die Spiel-Logik sind in beiden Repos praktisch identisch. Android-spezifisch sind nur `AndroidBt.cs`, `GlamourBt.java`, Manifest/Build. Windows-spezifisch ist nur `WinBt.cs`.
@@ -220,9 +220,9 @@ Dateien: `Tools/Preview/Preview.cs`, `TcpBt.cs`, `FakeUnity.cs`, `preview.sh`. `
 
 ## Stand Windows-Umsetzung (08.10.2026)
 
-- [x] Branch `feature/vier-spieler-bluetooth` (Basis `22aad3f`), alle Dateien aus Abschnitten 1-8 ?bernommen
+- [x] Branch `feature/vier-spieler-bluetooth` (Basis `22aad3f`), alle Dateien aus Abschnitten 1-8 übernommen
 - [x] Unity-Windows-Build erfolgreich, `WinBt.cs` kompiliert
 - [x] Konsolentests: 251 Checks, 0 Fehler
-- [x] Mehrprozess-Vorschau Poker, Host + 3 G?ste ?ber TCP
+- [x] Mehrprozess-Vorschau Poker, Host + 3 Gäste über TCP
 - [x] Echter Test PC (Host) <-> Pixel 10 (Gast): Beitritt, Lobby, Poker-Start
-- [ ] 3-4 echte Ger?te, Adapter-Limit, Reconnect real (nur ein Handy verf?gbar)
+- [ ] 3-4 echte Geräte, Adapter-Limit, Reconnect real (nur ein Handy verfügbar)

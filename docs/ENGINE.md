@@ -79,7 +79,7 @@ Registrierung: `Games/Menu.cs` → `Registry.All`.
 | Gegner | `Opponent` (`Human/Easy/Medium/Hard`), `Opponents.Pick/AddSwitch/ThinkTime/Accuracy/Label`, `Scene.Opp/VsCpu/PName/CpuThink/CpuThinking/ThinkPos` |
 | Feiern | `DiceParade` (`PKind.Dice/Disc/Sailor`), `CoinToss.Start(scene, first => ...)` |
 | Physik | `Phys` (`Gpx(pxPerM)` echte Erdbeschleunigung, `Launch`, `SlideSpeed`, `Drop`, `Ring`), `Body` (Starrkörper Kreis/Rechteck mit Boden/Wänden, Restitution, Reibung), `Rocker` (Kippen auf Kanten), `Sinker` (Flutung/Auftrieb/Krängung), `Chain` (Gliederkette), `Drum` (Walze mit Motor/Bremse/Rastfeder), `Glide` (Wurf + Gleitreibung), `ChipStack` (fallende Chips) |
-| Bluetooth | `Link` (Host/Join/Connected/PeerName/Seed, `Link.Game`), Transporte `AndroidBt` (Java-Plugin `Assets/Plugins/Android/GlamourBt.java`) und `WinBt` (Winsock RFCOMM + SDP), `BtLobby`; in Szenen: `Remote`, `Net(kind, ...)`, `NetRecv`, `Shared(kind, act)` (auf beiden Geräten genau einmal), `CoinToss` gespiegelt |
+| Bluetooth | `Link` (Fassade über `Session`: Host/Join/Start/Intent/Emit/EmitTo, `Count`, `MySeat`), Netzkern `Wire`/`Transport`/`Session`, Transporte `AndroidBt` (Java-Plugin `Assets/Plugins/Android/GlamourBt.java`) und `WinBt` (Winsock RFCOMM + SDP), `BtLobby`; Sitzspiele (`Seated`): `Act`, `NetIntent`, `NetDelta`, `NetSnapshot`; Altspiele (Relay): `Remote`, `Net(kind, ...)`, `NetRecv`, `Shared(kind, act)`; `CoinToss` gespiegelt |
 
 ### Unterschiede zum Skia-Original (Portierungshilfe)
 
@@ -115,8 +115,10 @@ Tools/compile_check.sh all                         # alles
 
 ## Bluetooth-Mehrspieler
 
-* Zwei Geräte (PC oder Handy, beliebig gemischt) müssen vorher im Betriebssystem gekoppelt sein. Eines **eröffnet**, das andere **tritt bei** (Menü, Symbol oben links).
-* RFCOMM mit Dienst-UUID `7a3c2f5e-9b1d-4e8a-a6f2-3d5c8b9e1f42`; Nachrichten sind UTF-8-Zeilen `G|spiel|art|daten`.
-* Jedes Gerät sieht sich als Spieler 1; der Mitspieler sitzt auf Platz 2 (wie sonst der Computer). Blackjack und Poker nutzen feste Plätze (Host = Platz 1).
-* Übertragen werden nur Züge; Zufall, der beide betrifft (Mischen, Walzen), kommt aus dem gemeinsamen Startwert des Hosts.
-* Test ohne Hardware: zwei Vorschau-Prozesse über TCP, z. B. `--net=host:47123` und `--net=join:47123` (siehe `Tools/Preview/TcpBt.cs`).
+* Geräte (PC oder Handy, beliebig gemischt) müssen vorher im Betriebssystem gekoppelt sein. Eines **eröffnet** (Host), bis zu drei Gäste **treten bei** (Menü, Symbol oben links); Sitze, Bereitschaft und Verbindungsstatus zeigt `BtLobby`.
+* RFCOMM mit Dienst-UUID `7a3c2f5e-9b1d-4e8a-a6f2-3d5c8b9e1f42`; Nachrichten sind UTF-8-Zeilen im Umschlag `GL2|sessionId|messageId|senderId|seat|type|seq|ack|rev|payload` (`Wire.cs`).
+* Stern-Topologie, **Host ist alleinige Autorität** (Sitzvergabe, Zufall, Regeln, Revision). Gäste senden nur Intents (`Act`), der Host verteilt Deltas (`Emit`); private Daten (Pokerkarten) nur per `EmitTo(seat, ...)`. Bei Lücken oder Wiederverbindung fordert ein Gast einen Snapshot (`NetSnapshot`/`NetApplySnapshot`).
+* Sitzspiele (2-4 Personen): Memory, Kniffel, Snake, Black Jack, Poker (`Seated`). Tic Tac Toe, Vier Gewinnt, Schiffe, Nim und Slot laufen im Relay-Modus mit 2 Sitzen.
+* Verbindungsverlust: Spiel pausiert bis zu 45 s (`SessionConfig.ReconnectWindow`), Wiederverbindung per `resumeToken`, danach Abbruch.
+* Tests ohne Hardware: `Tools/Tests` (`dotnet run -c Release`, 251 Prüfungen) und Mehrprozess-Vorschau über TCP, z. B. `--net=host:47123:4` plus `--net=join:47123` (siehe `Tools/Preview/TcpBt.cs`). Details: [Mehrspieler-Spezifikation.md](Mehrspieler-Spezifikation.md).
+

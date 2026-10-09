@@ -1,6 +1,7 @@
 # Glamour Games Unity Edition für Windows – Analyse und Maßnahmenplan
 
 Stand: 8. Oktober 2026  
+Schwester-Repo (Android): [domezos2024/glamour_games_unity_android](https://github.com/domezos2024/glamour_games_unity_android) mit eigener `ChatGPT-Verbesserungen.md`; Netzkern, Spiele und `docs/Mehrspieler-Spezifikation.md` sind in beiden Repos identisch.  
 Umfang: Analyse der Windows-Unity-Edition in diesem Repository; **keine Änderung am Spielcode**. Alle Befunde in diesem Dokument sind anhand der genannten Dateien im Projekt überprüfbar.
 
 ## Kurzfazit
@@ -110,10 +111,10 @@ Der engste technische Engpass liegt im Windows-Transport: `WinBt.Host()` ruft `l
 
 ## Verifikationsstand (Windows, 08.10.2026)
 
-- Gepr?ft: ?bertragung der Android-Umsetzung (Branch `feature/vier-spieler-bluetooth`, Basis `22aad3f`); Unity-Windows-Build ohne Fehler (6000.3.25f1, `WinBt.cs` kompiliert); 251 Konsolenchecks, 0 Fehler (Wire, Session, Transportvertrag MemTransport/TcpBt, Poker-Regeln inkl. Geheimkarten); Mehrprozess-Lauf Poker mit Host + 3 G?sten ?ber TCP (4 Sitze, Sitzvergabe korrekt).
-- Echter Bluetooth-Lauf: Windows-PC (MB-CUBE) als Host, Pixel 10 als Gast: SDP-Dienst erscheint gr?n in der Ger?teliste, Beitritt als Sitz 1, Lobby, Spielstart Poker, beide Seiten im Spiel. Ein erster Beitrittsversuch scheiterte mit ?Lesefehler? w?hrend eines 2,9-s-Startruckers der PC-App; nicht reproduziert, weiter beobachten.
-- Nicht gepr?ft (bewusst offen): 3 gleichzeitige echte Bluetooth-G?ste (nur ein Handy vorhanden), Adapter-Limit, Reconnect auf echten Ger?ten, Profiling (6.x), Ger?te-Matrix (7.4), Zerlegung der Gro?klassen.
+- Geprüft: Übertragung der Android-Umsetzung (Branch `feature/vier-spieler-bluetooth`, Basis `22aad3f`); Unity-Windows-Build ohne Fehler (6000.3.25f1, `WinBt.cs` kompiliert); 251 Konsolenchecks, 0 Fehler (Wire, Session, Transportvertrag MemTransport/TcpBt, Poker-Regeln inkl. Geheimkarten); Mehrprozess-Lauf Poker mit Host + 3 Gästen über TCP (4 Sitze, Sitzvergabe korrekt).
+- Echter Bluetooth-Lauf: Windows-PC (MB-CUBE) als Host, Pixel 10 als Gast: SDP-Dienst erscheint grün in der Geräteliste, Beitritt als Sitz 1, Lobby, Spielstart Poker, beide Seiten im Spiel. Ein erster Beitrittsversuch scheiterte mit „Lesefehler“ während eines 2,9-s-Startruckers der PC-App; nicht reproduziert, weiter beobachten.
+- Nicht geprüft (bewusst offen): 3 gleichzeitige echte Bluetooth-Gäste (nur ein Handy vorhanden), Adapter-Limit, Reconnect auf echten Geräten, Profiling (6.x), Geräte-Matrix (7.4), Zerlegung der Großklassen.
 
 ## Nicht Teil dieses Dokuments
 
-- [ ] Keine Behauptung einer funktionierenden Vier-Ger?te-Bluetooth-Sitzung: belegt sind Simulation, TCP-Mehrprozess und ein echter 2-Ger?te-Lauf.
+- [ ] Keine Behauptung einer funktionierenden Vier-Geräte-Bluetooth-Sitzung: belegt sind Simulation, TCP-Mehrprozess und ein echter 2-Geräte-Lauf.

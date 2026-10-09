@@ -4,7 +4,7 @@
 
 # Glamour Games – Unity Edition
 
-**10 glitzernde Spiele – zu zweit an einem PC, per Bluetooth (auch mit dem Handy) oder gegen den Computer.**
+**10 glitzernde Spiele – zu zweit an einem PC, per Bluetooth (auch mit dem Handy, bei fünf Spielen bis zu vier Personen) oder gegen den Computer.**
 Neuauflage der [Glamour Games für Windows](https://github.com/domezos2024/glamour_games_windows) mit Unity 6.3 LTS,
 HDR-Neon-Grafik und einem Computer-Gegner in drei Stärken für **jedes** Spiel.
 
@@ -17,9 +17,20 @@ HDR-Neon-Grafik und einem Computer-Gegner in drei Stärken für **jedes** Spiel.
 **[Neueste Version herunterladen](https://github.com/domezos2024/glamour_games_unity/releases/latest)**: entweder `GlamourGames-<Version>-Setup.exe` (Installer mit Startmenü-/Desktop-Verknüpfung und Deinstallation) oder `GlamourGames-<Version>-win-x64.zip` (ohne Installation: entpacken, `GlamourGames.exe` starten).
 Voraussetzungen: Windows 10/11 (64 Bit), Grafikkarte mit DirectX 11/12.
 
+## Neu in 2.4 - Vier-Spieler-Bluetooth
+
+* **Bis zu 4 Personen per Bluetooth** in **Memory, Kniffel, Snake, Black Jack und Poker** (2 bis 4 Sitze). Ein Gerät **eröffnet** (Host, alleinige Autorität), bis zu drei Gäste treten bei; die Lobby zeigt Sitze, Bereitschaft und Verbindungsstatus. Tic Tac Toe, Vier Gewinnt, Schiffe Versenken, Nim und Buch der Pharaonen bleiben bei 2 Personen.
+* **Robuste Sitzung:** versioniertes Protokoll, Sitzplätze, Wiederverbindung innerhalb 45 s (Spiel pausiert), Poker-Karten nur beim jeweiligen Sitz.
+* **Getestet:** 251 automatische Prüfungen (`Tools/Tests`), Mehrprozess-Läufe über TCP (Host + 3 Gäste) und ein echter Lauf PC (Host) mit Pixel 10 (Gast). Echte Läufe mit 3 bis 4 Geräten stehen noch aus.
+* **Dokumentation:** [Regeln, Matrix, Messziele, Review-Checkliste](docs/Mehrspieler-Spezifikation.md) · [Analyse und Maßnahmenplan](ChatGPT-Verbesserungen.md) · [Übertragung Android → Windows](dies-für-windows-version.md)
+
+## Schwester-Repository (Android)
+
+Dieselbe Spielebasis läuft auf Android: **[domezos2024/glamour_games_unity_android](https://github.com/domezos2024/glamour_games_unity_android)**. Identisch in beiden Repos sind `Assets/Glamour/Scripts`, `Assets/Plugins`, `Tools/Preview`, `Tools/Tests`, `docs/ENGINE.md` und `docs/Mehrspieler-Spezifikation.md`; eigenständig sind `ProjectBootstrap.cs`, `Assets/Glamour/Settings`, `ProjectSettings` und der Installer. Änderungen werden immer in beiden Repos nachgezogen (siehe [CLAUDE.md](CLAUDE.md)).
+
 ## Neu in 2.3 – Physik- und Bluetooth-Update
 
-* **Bluetooth-Mehrspieler:** alle 10 Spiele zu zweit an zwei Geräten – PC mit PC, PC mit Android-Handy oder Handy mit Handy. Geräte im Betriebssystem koppeln, im Menü (Symbol oben links) auf einem Gerät **eröffnen**, auf dem anderen **beitreten**; der Eröffner wählt das Spiel, der Mitspieler folgt automatisch.
+* **Bluetooth-Mehrspieler:** alle 10 Spiele zu zweit (fünf Spiele bis zu viert, siehe 2.4) an zwei Geräten – PC mit PC, PC mit Android-Handy oder Handy mit Handy. Geräte im Betriebssystem koppeln, im Menü (Symbol oben links) auf einem Gerät **eröffnen**, auf dem anderen **beitreten**; der Eröffner wählt das Spiel, der Mitspieler folgt automatisch.
 * **Realistische Physik:** echte Fallbeschleunigung je nach Objektgröße, Stöße mit Restitution und Reibung, Kippen, Rollen und Kreiseln. Kniffel-Würfel stoßen aneinander und lassen sich per Wischgeste werfen, Vier-Gewinnt-Steine klappern im Schacht und rollen nach dem Öffnen der Bodenklappe weg, Karten rutschen über den Filz, Chips fallen auf den Stapel, Walzen rasten federnd ein, Schiffe schaukeln und sinken mit Schlagseite, der Pokal fällt auf den Sockel und kippelt aus.
 * **Gleicher Code wie die Android-Version** ([glamour_games_unity_android](https://github.com/domezos2024/glamour_games_unity_android)).
 
