@@ -26,46 +26,109 @@ namespace GlamourGames
         Dictionary<string, int>[] card = { new Dictionary<string, int>(), new Dictionary<string, int>() }; int cur, rolls; bool over, rolling; Button roll, newBtn, oppBtn; DiceParade parade; bool resShown; int hoverRow = -1, hoverDie = -1;
         // Generationszähler: geplante Computeraktionen eines alten Spiels verfallen
         int gen; bool cpuBusy;
-        const float TX = 850, TY = 78, RH = 50, LW = 290, CW = 210;
+        const float TX = 850, TY = 78, RH = 50;
+        // Tabellenbreite je nach Spielerzahl (2: breite Spalten, 3-4: schmale Spalten)
+        static int tableN = 2; static float LW => tableN > 2 ? 220 : 290; static float CW => tableN > 2 ? 132 : 210;
+        static readonly Col[] SeatCol = { C.Cyan, C.Pink, C.Gold, C.Green };
+        static string Cut(string t, int n) => t.Length <= n ? t : t.Substring(0, n - 1) + ".";
         static readonly float[] Tilt = DieMul();
         static float[] DieMul() => Die3D.Mul(Die3D.RX(.5f), Die3D.RY(-.42f));
         bool CpuTurn => VsCpu && cur == 1 && !over;
         // Bluetooth: der Werfende bestimmt Augenzahlen und Wurfgeste und meldet sie; Halten, Zeilenwahl und Eintragen ebenso
-        bool RemoteTurn => Remote && cur == 1 && !over; Action netNew;
-        bool LocalNet => Remote && cur == 0;
-        public override void NetRecv(string kind, string[] a)
+        bool RemoteTurn => Remote && cur != MySeat && !over; Action netNew;
+        // ---- Bluetooth (2-4 Spieler, Host ist Autoritaet): Spieler am Zug senden roll/hold/sel/score; der Host wuerfelt die Augenzahlen,
+        // prueft Sitz/Zug/Zustand und verteilt das Ergebnis; alle Geraete wenden die Aenderungen der Reihe nach an.
+        public override bool Seated => Remote;
+        readonly Queue<(string kind, string[] a)> pend = new Queue<(string, string[])>(); bool hostBusy, hostNew;
+        int NSeats => Remote ? Math.Max(2, Link.Count) : 2;
+        bool RowFree(int r) => r >= 0 && r < Cats.Length && Cats[r].key != "bonus" && !card[cur].ContainsKey(Cats[r].key);
+        void RollOrScore(float power = 1, float spin = 0, float aim = 0)
         {
-            if (kind != "roll" && kind != "hold" && kind != "sel" && kind != "score") { base.NetRecv(kind, a); return; }
-            if (!RemoteTurn) return;
-            if (rolling) { int g = gen; Tm.After(.1f, () => { if (g == gen) NetRecv(kind, a); }); return; }
+            if (!Remote) { Roll(power, spin, aim); return; }
+            if (selRow >= 0) Act("score", selRow); else Act("roll", Link.F(power), Link.F(spin), Link.F(aim));
+        }
+        void HoldInput(int i) { if (Remote) Act("hold", i); else ToggleHold(i); }
+        public override void NetIntent(int seat, string kind, string[] a)
+        {
+            if (kind == "newgame") { if (!hostNew) { hostNew = true; Emit("newgame"); } return; }
+            if (seat != cur || over || rolling || hostBusy || a == null) return;
+            int v0 = a.Length > 0 ? Link.Int(a[0]) : 0;
             switch (kind)
             {
-                case "roll": Roll(Link.Flt(a[0]), Link.Flt(a[1]), Link.Flt(a[2]), a[3].Split('.').Select(Link.Int).ToArray()); break;
-                case "hold": ToggleHold(Link.Int(a[0])); break;
-                case "sel": selRow = Link.Int(a[0]); Sfx.Play(S.Take, .6f); break;
-                case "score": selRow = -1; Score(Link.Int(a[0])); break;
+                case "roll":
+                    if (rolls >= 3 || selRow >= 0 || a.Length < 3) return;
+                    float pw = Math.Clamp(Link.Flt(a[0]), .6f, 1.6f), sp = Math.Clamp(Link.Flt(a[1]), -1, 1), am = Math.Clamp(Link.Flt(a[2]), -1, 1);
+                    var vals = Enumerable.Range(0, 5).Select(i => dice[i].Held ? dice[i].V : Rng.Shared.Next(1, 7));
+                    hostBusy = true; Emit("roll", Link.F(pw), Link.F(sp), Link.F(am), string.Join(".", vals)); break;
+                case "hold": if (rolls > 0 && v0 >= 0 && v0 < 5) Emit("hold", v0); break;
+                case "sel": if (rolls > 0 && (v0 == -1 || RowFree(v0))) Emit("sel", v0); break;
+                case "score": if (rolls > 0 && RowFree(v0)) { hostBusy = true; Emit("score", v0); } break;
             }
+        }
+        public override void NetDelta(string kind, string[] a, bool priv)
+        {
+            if (kind == "start") { NewGame(); cur = Math.Clamp(a.Length > 0 ? Link.Int(a[0]) : 0, 0, card.Length - 1); hostNew = false; return; }
+            if (kind == "newgame") { pend.Clear(); NewMatch(); return; }
+            pend.Enqueue((kind, a));
+        }
+        /// <summary>Wartende Aenderungen des Hosts der Reihe nach anwenden, sobald die Wuerfel ruhen.</summary>
+        void ApplyPending()
+        {
+            while (pend.Count > 0 && !rolling)
+            {
+                var (kind, a) = pend.Dequeue();
+                switch (kind)
+                {
+                    case "roll": hostBusy = false; selRow = -1; if (a.Length > 3) Roll(Link.Flt(a[0]), Link.Flt(a[1]), Link.Flt(a[2]), a[3].Split('.').Select(Link.Int).ToArray()); return;
+                    case "hold": ToggleHold(Math.Clamp(Link.Int(a[0]), 0, 4)); break;
+                    case "sel": selRow = Link.Int(a[0]); Sfx.Play(S.Take, .6f); break;
+                    case "score": hostBusy = false; int r = Link.Int(a[0]); selRow = -1; if (r >= 0 && r < Cats.Length && !card[cur].ContainsKey(Cats[r].key)) Score(r); return;
+                }
+            }
+        }
+        public override string NetSnapshot(int seat)
+        {
+            if (card == null || over) return "";
+            return $"{cur};{rolls};{selRow};{string.Join(",", dice.Select(d => d.V + "." + (d.Held ? 1 : 0)))};{string.Join("#", card.Select(cd => string.Join(",", cd.Select(kv => kv.Key + ":" + kv.Value))))}";
+        }
+        public override void NetApplySnapshot(string b)
+        {
+            var p = (b ?? "").Split(';'); if (p.Length < 5) return;
+            var seats = p[4].Split('#'); if (seats.Length < 2) return;
+            NewGame(); pend.Clear(); card = new Dictionary<string, int>[seats.Length]; tableN = seats.Length;
+            for (int k = 0; k < seats.Length; k++)
+            {
+                card[k] = new Dictionary<string, int>();
+                foreach (var e in seats[k].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)) { var kv = e.Split(':'); if (kv.Length == 2) card[k][kv[0]] = Link.Int(kv[1]); }
+            }
+            cur = Math.Clamp(Link.Int(p[0]), 0, seats.Length - 1); rolls = Link.Int(p[1]); selRow = Link.Int(p[2]);
+            var ds = p[3].Split(','); for (int i = 0; i < 5 && i < ds.Length; i++) { var kv = ds[i].Split('.'); var d = dice[i]; d.V = Math.Clamp(Link.Int(kv[0]), 1, 6); d.Held = kv.Length > 1 && kv[1] == "1"; d.T = d.Dur = 1; d.Track = null; d.Rest = DicePhysics.RestRotation(d.V, -.42f + (i - 2) * .05f); }
         }
 
         public override void Enter()
         {
-            base.Enter(); roll = Ui.Add(new Button(200, 660, 460, 96, "WÜRFELN", C.Red, HumanRoll, 42)); netNew = Shared("newmatch", NewMatch); newBtn = Ui.Add(new Button(40, 780, 260, 62, "Neues Spiel", C.Purple, () => netNew(), 24));
+            base.Enter(); roll = Ui.Add(new Button(200, 660, 460, 96, "WÜRFELN", C.Red, HumanRoll, 42)); netNew = () => { if (Remote) Act("newgame"); else NewMatch(); }; newBtn = Ui.Add(new Button(40, 780, 260, 62, "Neues Spiel", C.Purple, () => netNew(), 24));
             oppBtn = Opponents.AddSwitch(this, OppKey, 320, 776, 260, 70, NewMatch);
             NewGame(); Opponents.Pick(this, OppKey, o => NewMatch());
         }
         public override void DebugWin() { Modal = null; parade = new DiceParade(this, 0, new[] { C.Cyan, C.Pink }, new[] { PName(0), PName(1) }, new[] { 200, 150 }); }
-        void NewMatch() { NewGame(); CoinToss.Start(this, f => cur = f); }
-        void NewGame() { gen++; CancelCpuThink(); cpuBusy = false; selRow = -1; card = new Dictionary<string, int>[] { new Dictionary<string, int>(), new Dictionary<string, int>() }; cur = 0; rolls = 0; over = false; Modal = null; parade = null; resShown = false; Fx.Clear(); for (int i = 0; i < 5; i++) ResetDie(dice[i], i); }
+        void NewMatch()
+        {
+            NewGame(); hostNew = false;
+            if (Remote) { if (Link.IsHost) Emit("start", Rng.Shared.Next(card.Length)); return; }   // kein Muenzwurf: der Host lost den Startspieler
+            CoinToss.Start(this, f => cur = f);
+        }
+        void NewGame() { gen++; CancelCpuThink(); cpuBusy = false; selRow = -1; card = Enumerable.Range(0, NSeats).Select(_ => new Dictionary<string, int>()).ToArray(); tableN = card.Length; hostBusy = false; cur = 0; rolls = 0; over = false; Modal = null; parade = null; resShown = false; Fx.Clear(); for (int i = 0; i < 5; i++) ResetDie(dice[i], i); }
         int Calc(string k, int[] v) => KniffelAI.Score(Array.IndexOf(CatKeys, k), v);
         int selRow = -1;
         int Total(int p) => card[p].Values.Sum();
         int UpperSum(int p) => Cats.Where(c => c.upper && c.key != "bonus" && card[p].ContainsKey(c.key)).Sum(c => card[p][c.key]);
         int[] Vals() => dice.Select(d => d.V).ToArray();
-        void HumanRoll() { if (CpuTurn || CpuThinking || RemoteTurn) return; Roll(); }
+        void HumanRoll() { if (CpuTurn || CpuThinking || RemoteTurn) return; RollOrScore(); }
         /// <summary>Wuerfeln. power/spin/aim kommen aus der Wischgeste (Standard: normaler Wurf).</summary>
         void Roll(float power = 1, float spin = 0, float aim = 0, int[] forced = null)
         {
-            if (selRow >= 0 && !over && !rolling) { int r0 = selRow; selRow = -1; if (LocalNet) Net("score", r0); Score(r0); return; }
+            if (selRow >= 0 && !over && !rolling) { int r0 = selRow; selRow = -1; Score(r0); return; }
             if (rolls >= 3 || over || rolling) return;
             selRow = -1; rolls++; rolling = true; Sfx.Play(S.Dice, Math.Clamp(power, .6f, 1.3f)); var rnd = Rng.Shared;
             var free = Enumerable.Range(0, 5).Where(i => !dice[i].Held).ToList();
@@ -81,7 +144,6 @@ namespace GlamourGames
                 var tracks = DicePhysics.ThrowAll(new Random(rnd.Next()), free.Select(Slot3D).ToArray(), free.Select(i => dice[i].V).ToArray(), power, spin, aim, Enumerable.Range(0, 5).Where(i => dice[i].Held).Select(Slot3D).ToArray());
                 for (int k = 0; k < free.Count; k++) { var d = dice[free[k]]; d.Track = tracks[k]; d.Dur = d.Track.Duration; d.HitI = 0; d.Rest = d.Track.Rot[d.Track.Rot.Length - 1]; }
             }
-            if (LocalNet) Net("roll", Link.F(power), Link.F(spin), Link.F(aim), string.Join(".", dice.Select(d => d.V)));
             Log.I($"wurf: frei={free.Count} kraft={power:0.00} drall={spin:0.00} richtung={aim:0.00}");
         }
         // Wischgeste ueber den Tisch: Geschwindigkeit -> Wurfkraft, seitliche Komponente -> Richtung und Drall
@@ -93,10 +155,10 @@ namespace GlamourGames
             if (swT < 0) return false; float dt = Math.Max(.03f, Time - swT), dx = x - swX, dy = y - swY, dist = MathF.Sqrt(dx * dx + dy * dy); swT = -1;
             if (dist < 90 || CpuTurn || RemoteTurn || CpuThinking || rolling || over || rolls >= 3) return false;
             float speed = dist / dt;
-            Roll(Math.Clamp(speed / 1600f, .6f, 1.6f), Math.Clamp(-dy / Math.Max(1, dist) * (dx < 0 ? -1 : 1), -1, 1), Math.Clamp(dy / dist, -1, 1));
+            RollOrScore(Math.Clamp(speed / 1600f, .6f, 1.6f), Math.Clamp(-dy / Math.Max(1, dist) * (dx < 0 ? -1 : 1), -1, 1), Math.Clamp(dy / dist, -1, 1));
             return true;
         }
-        void ToggleHold(int i) { if (LocalNet) Net("hold", i); dice[i].Held = !dice[i].Held; Sfx.Play(S.Take, .6f); }
+        void ToggleHold(int i) { dice[i].Held = !dice[i].Held; Sfx.Play(S.Take, .6f); }
         public override bool WantsHand => hoverRow >= 0 || hoverDie >= 0;
         static Box DieRect(int i) => Gfx.Ctr(130 + i * 145, 400, 128, 128);
         static Box RowRect(int r) => Gfx.R(TX, TY + 48 + r * RH, LW + 2 * CW, RH);
@@ -111,14 +173,14 @@ namespace GlamourGames
             if (parade != null && parade.T > 2 && !resShown) { ShowResult(); return; }
             if (CpuTurn || RemoteTurn) return;
             if (TrySwipe(x, y)) return;
-            if (hoverDie >= 0 && rolls > 0 && !rolling) ToggleHold(hoverDie);
-            else if (hoverRow >= 0) { selRow = selRow == hoverRow ? -1 : hoverRow; Sfx.Play(S.Take, .6f); if (LocalNet) Net("sel", selRow); }
+            if (hoverDie >= 0 && rolls > 0 && !rolling) HoldInput(hoverDie);
+            else if (hoverRow >= 0) { int ns = selRow == hoverRow ? -1 : hoverRow; if (Remote) Act("sel", ns); else { selRow = ns; Sfx.Play(S.Take, .6f); } }
         }
         public override void KeyDown(Key k)
         {
             if (CpuTurn || RemoteTurn) return;
             if (k == Key.Space || k == Key.Enter) HumanRoll();
-            else if (k >= Key.Number1 && k <= Key.Number5 && rolls > 0 && !rolling) ToggleHold(k - Key.Number1);
+            else if (k >= Key.Number1 && k <= Key.Number5 && rolls > 0 && !rolling) HoldInput(k - Key.Number1);
         }
         void Score(int r)
         {
@@ -129,20 +191,23 @@ namespace GlamourGames
             else if (v == 0) { Fx.Smoke(cx, rr.MidY, 6, 12, 40, 1.4f); Pop("0", cx, rr.MidY, C.Dim, 40); }
             if (UpperSum(cur) >= 63 && !card[cur].ContainsKey("bonus")) { card[cur]["bonus"] = 35; Pop("BONUS +35", 1200, 130, C.Green, 46); Sfx.Play(S.Win); }
             else if (Cats.Where(c => c.upper && c.key != "bonus").All(c => card[cur].ContainsKey(c.key)) && !card[cur].ContainsKey("bonus")) { card[cur]["bonus"] = 0; }
-            if (card[0].Count(kv => kv.Key != "bonus") == 13 && card[1].Count(kv => kv.Key != "bonus") == 13) { End(); return; }
-            cur = 1 - cur; rolls = 0; for (int i = 0; i < 5; i++) ResetDie(dice[i], i);
+            if (card.All(cd => cd.Count(kv => kv.Key != "bonus") == 13)) { End(); return; }
+            cur = (cur + 1) % card.Length; rolls = 0; for (int i = 0; i < 5; i++) ResetDie(dice[i], i);
         }
         void End()
         {
-            over = true; int a = Total(0), b = Total(1); int w = a > b ? 0 : b > a ? 1 : -1; Sfx.Play(S.Win);
-            parade = new DiceParade(this, w, new[] { C.Cyan, C.Pink }, new[] { PName(0), PName(1) }, new[] { a, b }); resWin = w; resA = a; resB = b;
-            int g = gen; Tm.After(13.2f, () => { if (g == gen) ShowResult(); });
+            over = true; int N = card.Length; var tot = Enumerable.Range(0, N).Select(Total).ToArray(); int mx = tot.Max(), w = tot.Count(x => x == mx) == 1 ? Array.IndexOf(tot, mx) : -1; Sfx.Play(S.Win);
+            resWin = w; resTab = string.Join("  :  ", tot); resNames = N > 2; resCol = w < 0 ? C.Gold : SeatCol[w];
+            if (N == 2) parade = new DiceParade(this, w, new[] { C.Cyan, C.Pink }, new[] { PName(0), PName(1) }, tot);
+            else Celebrate(resCol, 5, 1.1f, w < 0 ? "Unentschieden!" : $"{PName(w)} gewinnt!");
+            int g = gen; Tm.After(N == 2 ? 13.2f : 3.5f, () => { if (g == gen) ShowResult(); });
         }
-        int resWin, resA, resB;
+        int resWin; string resTab = ""; bool resNames; Col resCol;
         void ShowResult()
         {
             if (resShown) return; resShown = true; int w = resWin;
-            Result(w < 0 ? "UNENTSCHIEDEN" : $"{PName(w)} gewinnt!", $"{resA}  :  {resB}", w == 0 ? C.Cyan : w == 1 ? C.Pink : C.Gold, ("Nochmal", C.Green, netNew), ("Menü", C.Purple, () => App.Go(new Menu())));
+            string tab = resNames ? string.Join("   |   ", Enumerable.Range(0, card.Length).Select(k => $"{Cut(PName(k), 8)}: {Total(k)}")) : resTab;
+            Result(w < 0 ? "UNENTSCHIEDEN" : $"{PName(w)} gewinnt!", tab, resCol, ("Nochmal", C.Green, netNew), ("Menü", C.Purple, () => App.Go(new Menu())));
         }
 
         // ---------------------------------------------------------------- Computer-Gegner
@@ -179,7 +244,7 @@ namespace GlamourGames
 
         public override void Update(float dt)
         {
-            parade?.Update(dt); newBtn.Visible = oppBtn.Visible = parade == null; rolling = false;
+            parade?.Update(dt); ApplyPending(); newBtn.Visible = oppBtn.Visible = parade == null; rolling = false;
             for (int i = 0; i < 5; i++)
             {
                 var d = dice[i];
@@ -199,8 +264,9 @@ namespace GlamourGames
         }
         public override void Draw(Canvas2D c)
         {
-            W.PlayerBox(c, Gfx.R(40, 130, 260, 120), PName(0), Total(0).ToString(), C.Cyan, cur == 0 && !over, Time);
-            W.PlayerBox(c, Gfx.R(320, 130, 260, 120), PName(1), Total(1).ToString(), C.Pink, cur == 1 && !over, Time);
+            for (int k = 0; k < card.Length; k++)
+                if (card.Length == 2) W.PlayerBox(c, Gfx.R(40 + k * 280, 130, 260, 120), PName(k), Total(k).ToString(), SeatCol[k], cur == k && !over, Time);
+                else W.PlayerBox(c, Gfx.R(40 + k * 140, 130, 130, 120), Cut(PName(k), 8), Total(k).ToString(), SeatCol[k], cur == k && !over, Time);
             Gfx.Text(c, $"Runde {Math.Min(13, card[cur].Count(k => k.Key != "bonus") + 1)} / 13", 610, 190, 26, C.Dim, Al.L, false);
             for (int i = 0; i < 3; i++) { float x = 610 + Gfx.TW("Würfe übrig", 20, false) + 18 + i * 26; bool on = i < 3 - rolls; c.DrawCircle(x, 235, 10, Gfx.Fill(on ? C.Gold : C.Dim.A(.25f))); if (on) Gfx.Light(c, x, 235, 24, C.Gold, .45f, 1.8f); }
             Gfx.Text(c, "Würfe übrig", 610, 235, 20, C.Dim, Al.L, false);
@@ -211,7 +277,7 @@ namespace GlamourGames
             Gfx.RectRadial(c, felt, 22, felt.MidX, felt.MidY - 40, 470, new Col(22, 106, 68), new Col(5, 32, 22));
             Gfx.Stroke(c, felt, 22, Col.Black.A(.5f), 3); Gfx.Stroke(c, Gfx.Inflate(felt, -6), 18, C.Green.A(.28f), 2);
             Gfx.Light(c, felt.MidX, felt.MidY - 50, 380, new Col(255, 240, 200), .06f, 1.2f);
-            Gfx.Text(c, CpuTurn ? "Der Computer ist am Zug ..." : RemoteTurn ? $"{PName(1)} ist am Zug ..." : selRow >= 0 ? Platform.Pick("Zeile anklicken = abwählen, grüner Knopf = eintragen", "Zeile antippen = abwählen, grüner Knopf = eintragen") : Platform.Pick("Würfel/Tasten 1-5 halten  -  Leertaste oder über den Tisch ziehen würfelt", "Würfel antippen = halten  -  über den Tisch wischen = werfen"), 430, 560, 22, CpuTurn || RemoteTurn ? C.Pink.Light(.4f) : C.Dim, Al.C, false);
+            Gfx.Text(c, CpuTurn ? "Der Computer ist am Zug ..." : RemoteTurn ? $"{PName(cur)} ist am Zug ..." : selRow >= 0 ? Platform.Pick("Zeile anklicken = abwählen, grüner Knopf = eintragen", "Zeile antippen = abwählen, grüner Knopf = eintragen") : Platform.Pick("Würfel/Tasten 1-5 halten  -  Leertaste oder über den Tisch ziehen würfelt", "Würfel antippen = halten  -  über den Tisch wischen = werfen"), 430, 560, 22, CpuTurn || RemoteTurn ? C.Pink.Light(.4f) : C.Dim, Al.C, false);
             if (Physical)
             {
                 var arr = new Die3D.TrayDie[5];
@@ -253,8 +319,8 @@ namespace GlamourGames
         }
         void DrawTable(Canvas2D c)
         {
-            var frame = Gfx.R(TX - 12, TY - 10, LW + 2 * CW + 24, 48 + Cats.Length * RH + 60); W.Panel(c, frame, C.Red);
-            for (int p = 0; p < 2; p++) { var hr = Gfx.R(TX + LW + p * CW + 6, TY, CW - 12, 40); var col = p == 0 ? C.Cyan : C.Pink; Gfx.Rect(c, hr, 12, col.A(cur == p && !over ? .35f : .12f)); if (cur == p && !over) Gfx.Glow(c, hr, 12, col, 8, .6f); Gfx.Text(c, PName(p), hr.MidX, hr.MidY, 24, col.Light(.4f)); }
+            var frame = Gfx.R(TX - 12, TY - 10, LW + card.Length * CW + 24, 48 + Cats.Length * RH + 60); W.Panel(c, frame, C.Red);
+            for (int p = 0; p < card.Length; p++) { var hr = Gfx.R(TX + LW + p * CW + 6, TY, CW - 12, 40); var col = SeatCol[p]; Gfx.Rect(c, hr, 12, col.A(cur == p && !over ? .35f : .12f)); if (cur == p && !over) Gfx.Glow(c, hr, 12, col, 8, .6f); Gfx.Text(c, Cut(PName(p), tableN > 2 ? 9 : 16), hr.MidX, hr.MidY, tableN > 2 ? 20 : 24, col.Light(.4f)); }
             bool can = rolls > 0 && !over; int[] vals = Vals();
             for (int r = 0; r < Cats.Length; r++)
             {
@@ -263,8 +329,8 @@ namespace GlamourGames
                 if (hv) { Gfx.Rect(c, Gfx.Inflate(rr, -2), 8, C.Gold.A(selRow == r ? .32f : .16f)); if (selRow == r) Gfx.Glow(c, Gfx.Inflate(rr, -2), 8, C.Gold, 10, .55f + .25f * MathF.Sin(Time * 6)); Gfx.Stroke(c, Gfx.Inflate(rr, -2), 8, C.Gold, selRow == r ? 4 : 2); }
                 if (r == 6 || r == 7) c.DrawLine(rr.Left + 10, rr.Top, rr.Right - 10, rr.Top, Gfx.Line(C.Red.A(.5f), 2));
                 Gfx.Text(c, label, rr.Left + 16, rr.MidY, key == "bonus" ? 21 : 26, upper ? Col.White : C.Orange.Light(.5f), Al.L, false);
-                if (key == "bonus") Gfx.Text(c, $"{UpperSum(cur)}/63", rr.Left + LW - 16, rr.MidY, 18, C.Dim, Al.R, false);
-                for (int p = 0; p < 2; p++)
+                if (key == "bonus" && tableN <= 2) Gfx.Text(c, $"{UpperSum(cur)}/63", rr.Left + LW - 16, rr.MidY, 18, C.Dim, Al.R, false);
+                for (int p = 0; p < card.Length; p++)
                 {
                     float cx = TX + LW + p * CW + CW / 2;
                     if (card[p].TryGetValue(key, out var v)) Gfx.Text(c, v.ToString(), cx, rr.MidY, 30, v == 0 ? C.Dim : Col.White, Al.C, true, v > 0 ? 3 : 0);
@@ -276,8 +342,8 @@ namespace GlamourGames
                     else if (can && p == cur) { int pv = Calc(key, vals); float pu = .5f + .5f * MathF.Sin(Time * 5 + r); Gfx.Text(c, pv.ToString(), cx, rr.MidY, 30, (pv > 0 ? C.Gold : C.Dim).A(hv ? 1 : .55f + .3f * pu), Al.C, true, hv ? 8 : 0); }
                 }
             }
-            float sy = TY + 48 + Cats.Length * RH + 30; var gl = Gfx.Line(C.Gold.A(.6f), 2); gl.Glow = 1.4f; c.DrawLine(TX, sy - 24, TX + LW + 2 * CW, sy - 24, gl);
-            Gfx.Text(c, "SUMME", TX + 16, sy, 28, C.Gold, Al.L, true, 6); for (int p = 0; p < 2; p++) Gfx.Text(c, Total(p).ToString(), TX + LW + p * CW + CW / 2, sy, 34, p == 0 ? C.Cyan : C.Pink, Al.C, true, 8);
+            float sy = TY + 48 + Cats.Length * RH + 30; var gl = Gfx.Line(C.Gold.A(.6f), 2); gl.Glow = 1.4f; c.DrawLine(TX, sy - 24, TX + LW + card.Length * CW, sy - 24, gl);
+            Gfx.Text(c, "SUMME", TX + 16, sy, 28, C.Gold, Al.L, true, 6); for (int p = 0; p < card.Length; p++) Gfx.Text(c, Total(p).ToString(), TX + LW + p * CW + CW / 2, sy, 34, SeatCol[p], Al.C, true, 8);
         }
     }
 

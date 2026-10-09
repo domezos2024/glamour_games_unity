@@ -357,59 +357,149 @@ namespace GlamourGames
         public override string OppKey => "poker";
         static readonly (int sb, int bb)[] Blinds = { (10, 20), (20, 40), (30, 60), (50, 100), (75, 150), (100, 200), (150, 300), (200, 400), (300, 600), (500, 1000) };
         const int PerLevel = 8, Start = 1000;
-        class P { public string Name; public bool Human; public int Chips, Bet, Total, Raises; public List<PokerCard> Hole = new List<PokerCard>(); public bool Folded, AllIn, Out, Acted, CanRaise; public string LastAct = "", HandName = ""; public Spring[] Flip = { new Spring(0) { K = 170, D = 20 }, new Spring(0) { K = 170, D = 20 } }; public Glide[] G = new Glide[2]; }
+        class P { public string Name; public bool Human; public int Chips, Bet, Total, Raises; public List<PokerCard> Hole = new List<PokerCard>(); public bool Folded, AllIn, Out, Acted, CanRaise, Known; public string LastAct = "", HandName = ""; public Spring[] Flip = { new Spring(0) { K = 170, D = 20 }, new Spring(0) { K = 170, D = 20 } }; public Glide[] G = new Glide[2]; }
         // Karten werden vom Geber ueber den Filz geworfen (Flugphase + Gleitreibung), Chips fallen auf ihre Stapel
-        static readonly float Gk = Phys.Gpx(1750); readonly Glide[] bg = new Glide[5]; readonly ChipStack potStack = new ChipStack(); readonly ChipStack[] betStacks = { new ChipStack(), new ChipStack(), new ChipStack() };
+        static readonly float Gk = Phys.Gpx(1750); readonly Glide[] bg = new Glide[5]; readonly ChipStack potStack = new ChipStack(); readonly ChipStack[] betStacks = { new ChipStack(), new ChipStack(), new ChipStack(), new ChipStack() };
         static readonly Pt DealFrom = new Pt(700, 250);
-        Pt HolePos(int i, int k) => new Pt(Seat[i].X + (k - .5f) * 92, Seat[i].Y + (i == 2 ? 10 : 24));
+        Pt HolePos(int i, int k) => new Pt(Seat[i].X + (k - .5f) * 92, Seat[i].Y + SY(i));
         P[] pl; List<PokerCard> deck = new List<PokerCard>(), board = new List<PokerCard>(); int button, handNo, curBet, lastRaise, toAct = -1, sbI, bbI, sb = 10, bb = 20; string street = ""; bool inHand, gameOver, showAll; int revealed = -1; List<int> winners = new List<int>(); float handT;
         (string act, int to)? pending; (string t, string s)? overlay; bool overlayDone; readonly List<string> log = new List<string>(); string msg = ""; Button bNext, bNew, bFold, bCall, bRaise, bMin, bHalf, bPot, bAll, bShow;
         readonly Spring[] bflip = Enumerable.Range(0, 5).Select(_ => new Spring(0) { K = 170, D = 20 }).ToArray(); readonly float[] bt = new float[5];
         int sliderMin, sliderMax, sliderVal; bool drag; static readonly Box Track = Gfx.R(850, 748, 300, 14);
-        static readonly Pt[] Seat = { new Pt(340, 545), new Pt(1060, 545), new Pt(700, 215) };
+        // Sitzplaetze je Spielerzahl: 2 unten, 3 mit Platz oben mittig, 4 mit zwei oberen Plaetzen
+        static readonly Pt[][] Layouts = { new[] { new Pt(340, 545), new Pt(1060, 545) }, new[] { new Pt(340, 545), new Pt(1060, 545), new Pt(700, 215) }, new[] { new Pt(340, 545), new Pt(1060, 545), new Pt(1060, 215), new Pt(340, 215) } };
+        Pt[] Seat => Layouts[Math.Clamp(pl.Length, 2, 4) - 2];
+        float SY(int i) => Seat[i].Y < 400 ? 10 : 24;
         // Generationszaehler: alte geplante Computeraktionen feuern nicht ins neue Spiel
         int gen; bool awaitHuman, hotseat; readonly HashSet<int> hlCards = new HashSet<int>();
-        // Bluetooth: feste Plaetze (0 = Host, 1 = Beitretender, 2 = Computer). Mischen und Dealer-Button per gemeinsamem
-        // Startwert; menschliche Zuege und die Computerzuege (rechnet der Host) werden uebertragen und der Reihe nach angewandt
-        int MySeat => Remote && !Link.IsHost ? 1 : 0; Random pokerRnd = Rng.Shared; int games; Action netHand, netNew;
-        readonly Queue<(int seat, string act, int to)> netMoves = new Queue<(int, string, int)>();
-        string SeatName(int i) => i == MySeat ? Pl.Name(0) : Link.PeerName;
-        public override void NetRecv(string kind, string[] a)
+        // Bluetooth (2-4 Spieler, Host ist Autoritaet): Nur der Host mischt, teilt aus, prueft Zuege und wertet. Alle Sitze sind Menschen.
+        // Oeffentlicher Zustand ("pub") geht an alle; die eigenen Hole Cards kommen ausschliesslich per EmitTo ("hole") an den jeweiligen Sitz,
+        // fremde Haende werden erst offen gelegt (Showdown / All-In), und zwar im "pub". Gaeste und Host senden Zuege als Intent "mv".
+        public override bool Seated => Remote;
+        static readonly Col[] SeatCol = { C.Cyan, C.Pink, C.Green, C.Gold };
+        static string Cut(string t, int n) => t.Length <= n ? t : t.Substring(0, n - 1) + ".";
+        bool netReady, mvSent; const int HDR = 17, PER = 12; Random pokerRnd = Rng.Shared; Action netHand, netNew;
+        static string San(string t) => string.IsNullOrEmpty(t) ? "~" : t.Replace(';', ' ');
+        static string Un(string t) => t == "~" ? "" : t;
+        static string Codes(IEnumerable<PokerCard> l) { var s = string.Join(".", l.Select(c => c.Code)); return s.Length == 0 ? "-" : s; }
+        static List<PokerCard> FromCodes(string s) { var l = new List<PokerCard>(); if (string.IsNullOrEmpty(s) || s == "-") return l; foreach (var t in s.Split('.')) if (int.TryParse(t, out int v) && v >= 0 && v < 52) l.Add(PokerCard.FromCode(v)); return l; }
+        object[] PubArgs()
         {
-            if (kind == "mv") { netMoves.Enqueue((Link.Int(a[0]), a[1], Link.Int(a[2]))); return; }
-            base.NetRecv(kind, a);
+            var l = new List<object> { handNo, San(street), inHand ? 1 : 0, showAll ? 1 : 0, button, sbI, bbI, sb, bb, curBet, lastRaise, toAct, Codes(board), winners.Count == 0 ? "-" : string.Join(".", winners), gameOver ? 1 : 0, awaitHuman ? 1 : 0, San(msg) };
+            foreach (var p in pl)
+            {
+                bool open = showAll && !p.Folded && p.Hole.Count == 2;   // nur was am Tisch offen liegt
+                l.Add(p.Chips); l.Add(p.Bet); l.Add(p.Total); l.Add(p.Folded ? 1 : 0); l.Add(p.AllIn ? 1 : 0); l.Add(p.Out ? 1 : 0); l.Add(p.Acted ? 1 : 0); l.Add(p.CanRaise ? 1 : 0); l.Add(p.Raises);
+                l.Add(San(p.LastAct)); l.Add(San(showAll ? p.HandName : "")); l.Add(open ? Codes(p.Hole) : "-");
+            }
+            return l.ToArray();
         }
-        /// <summary>Wartet im Ablauf auf den uebertragenen Zug fuer Platz seat.</summary>
-        bool TakeNet(int seat) { if (netMoves.Count == 0 || netMoves.Peek().seat != seat) return false; var m = netMoves.Dequeue(); pending = (m.act, m.to); return true; }
+        void Pub() { if (!netReady || !Remote || !Link.IsHost || pl == null) return; Emit("pub", PubArgs()); }
+        void NetStartHand() { if (!netReady || !Remote || !Link.IsHost) return; Pub(); for (int s = 1; s < pl.Length; s++) if (pl[s].Hole.Count == 2) EmitTo(s, "hole", Codes(pl[s].Hole)); }
+        public override void NetIntent(int seat, string kind, string[] a)
+        {
+            if (!Link.IsHost || pl == null || seat < 0 || seat >= pl.Length) return;
+            switch (kind)
+            {
+                case "mv":
+                    if (inHand && awaitHuman && pending == null && seat == toAct && a.Length >= 1 && (a[0] == "fold" || a[0] == "call" || a[0] == "raise"))
+                    { if (a[0] == "raise" && !Legal(seat).canRaise) return; pending = (a[0], a.Length > 1 ? Link.Int(a[1]) : 0); }
+                    break;
+                case "hand": if (!inHand && !gameOver && !Co.Busy) Co.Start(HandCo()); break;
+                case "new": if (seat == 0 || gameOver) NewGame(); break;
+            }
+        }
+        public override void NetDelta(string kind, string[] a, bool priv)
+        {
+            if (Link.IsHost || pl == null) return;
+            switch (kind)
+            {
+                case "pub": ApplyPub(a); break;
+                case "hole": if (a.Length > 0 && MySeat < pl.Length) { var h = FromCodes(a[0]); if (h.Count == 2) { var p = pl[MySeat]; p.Hole.Clear(); p.Hole.AddRange(h); p.Known = true; } } break;
+                case "lg": if (a.Length > 0) { log.Insert(0, a[0]); if (log.Count > 40) log.RemoveAt(40); } break;
+            }
+        }
+        public override string NetSnapshot(int seat)
+        {
+            if (!Remote || !Link.IsHost || pl == null) return "";
+            var l = PubArgs().Select(o => o.ToString()).ToList(); l.Add(seat >= 0 && seat < pl.Length && pl[seat].Hole.Count == 2 ? Codes(pl[seat].Hole) : "-"); return string.Join(";", l);
+        }
+        public override void NetApplySnapshot(string blob) { if (pl == null || string.IsNullOrEmpty(blob)) return; var a = blob.Split(';'); ApplyPub(a); }
+        /// <summary>Gast: oeffentlichen Zustand uebernehmen (Karten anderer Sitze bleiben verdeckte Platzhalter, bis sie offen liegen).</summary>
+        void ApplyPub(string[] a)
+        {
+            if (a.Length < HDR) return; int n = (a.Length - HDR) / PER; if (n < 2 || n > 4 || a.Length < HDR + n * PER) return;
+            if (n != pl.Length) pl = Enumerable.Range(0, n).Select(i => Mk(PName(i), true)).ToArray();
+            int I(int k) => Link.Int(a[k]);
+            int hn = I(0); bool ih = a[2] == "1", sa = a[3] == "1", go = a[14] == "1", aw = a[15] == "1";
+            bool newGame = hn < handNo || (gameOver && !go), newHand = ih && (!inHand || hn != handNo);
+            if (newGame)
+            {
+                gen++; hlCards.Clear(); log.Clear(); winners.Clear(); board.Clear(); overlay = null; gameOver = false; mvSent = false;
+                if (Modal != null && Modal.Title != "Gegner wählen") Modal = null;
+                foreach (var p in pl) { p.Hole.Clear(); p.Known = false; p.G = new Glide[2]; p.Flip[0].Snap(0); p.Flip[1].Snap(0); }
+            }
+            if (newHand || newGame) { for (int k = 0; k < 5; k++) { bflip[k].Snap(0); bt[k] = 0; bg[k] = null; } board.Clear(); winners.Clear(); hlCards.Clear(); handT = 0; }
+            var fx = new List<(int i, string last, bool allin)>();
+            for (int i = 0; i < n; i++)
+            {
+                int o = HDR + i * PER; var p = pl[i]; string oldLast = p.LastAct; bool wasAll = p.AllIn;
+                p.Chips = I(o); p.Bet = I(o + 1); p.Total = I(o + 2); p.Folded = a[o + 3] == "1"; p.AllIn = a[o + 4] == "1"; p.Out = a[o + 5] == "1"; p.Acted = a[o + 6] == "1"; p.CanRaise = a[o + 7] == "1"; p.Raises = I(o + 8);
+                p.LastAct = Un(a[o + 9]); p.HandName = Un(a[o + 10]);
+                if (!newHand && !newGame && p.LastAct != oldLast && p.LastAct.Length > 0) fx.Add((i, p.LastAct, p.AllIn && !wasAll));
+            }
+            if (newHand)
+            {
+                foreach (var p in pl) { p.Hole.Clear(); p.Known = false; if (!p.Out) { p.Hole.Add(new PokerCard(2, 0)); p.Hole.Add(new PokerCard(2, 0)); } p.Flip[0].Snap(0); p.Flip[1].Snap(0); p.G = new Glide[2]; }
+                Sfx.Play(S.Deal); Sfx.Play(S.Chip);
+            }
+            for (int i = 0; i < n; i++) { var h = FromCodes(a[HDR + i * PER + 11]); if (h.Count == 2) { pl[i].Hole.Clear(); pl[i].Hole.AddRange(h); pl[i].Known = true; } }
+            if (a.Length > HDR + n * PER && MySeat < n) { var h = FromCodes(a[HDR + n * PER]); if (h.Count == 2) { pl[MySeat].Hole.Clear(); pl[MySeat].Hole.AddRange(h); pl[MySeat].Known = true; } }
+            var nb = FromCodes(a[12]); if (nb.Count > board.Count && board.Count > 0) Sfx.Play(S.Flip); board.Clear(); board.AddRange(nb);
+            handNo = hn; street = Un(a[1]); inHand = ih; showAll = sa; button = I(4); sbI = I(5); bbI = I(6); sb = I(7); bb = I(8); curBet = I(9); lastRaise = I(10); toAct = I(11); msg = Un(a[16]);
+            var nw = a[13] == "-" ? new List<int>() : a[13].Split('.').Select(t => Link.Int(t)).Where(j => j >= 0 && j < n).ToList(); bool gotWin = nw.Count > 0 && winners.Count == 0; winners = nw;
+            foreach (var f in fx)
+            {
+                Sfx.Play(f.last.StartsWith("Fold") ? S.Take : f.last.StartsWith("Check") ? S.Tick : S.Chip, .6f);
+                if (f.allin) { var s = Seat[f.i]; Fx.Shockwave(s.X, s.Y, C.Orange, 220, .5f); App.Shake(4); }
+            }
+            if (gotWin) { FinishFx(); if (sa) foreach (var j in winners) MarkBest(pl[j]); }
+            revealed = MySeat; if (!(ih && aw && toAct == MySeat)) mvSent = false;
+            bool mine = ih && aw && toAct == MySeat && toAct < n && !pl[toAct].Folded && !pl[toAct].AllIn && !mvSent;
+            if (mine && !awaitHuman) { SetupRaise(); Sfx.Play(S.Turn, .5f); }
+            awaitHuman = mine; pending = null;
+            if (go && !gameOver) { gameOver = true; ShowGameOver(); }
+        }
         PokerLevel Lvl => Opp switch { Opponent.Easy => PokerLevel.Easy, Opponent.Medium => PokerLevel.Medium, Opponent.Hard => PokerLevel.Hard, _ => PokerLevel.Original };
 
         public override void Enter()
         {
             base.Enter();
-            netHand = Shared("hand", () => { if (!inHand && !gameOver) Co.Start(HandCo()); }); netNew = Shared("new", NewGame);
+            netHand = () => { if (Remote) Act("hand"); else if (!inHand && !gameOver) Co.Start(HandCo()); }; netNew = () => { if (Remote) Act("new"); else NewGame(); };
             bNew = Ui.Add(new Button(40, 790, 230, 56, "Neues Spiel", C.Purple, () => netNew(), 22)); bNext = Ui.Add(new Button(560, 785, 280, 72, "Nächste Hand", C.Green, () => { if (!inHand && !Co.Busy && !gameOver) netHand(); }, 30));
-            bFold = Ui.Add(new Button(330, 792, 190, 66, "FOLD", C.Red, () => Act("fold", 0), 28)); bCall = Ui.Add(new Button(540, 792, 250, 66, "CHECK", C.Cyan, () => Act("call", 0), 28)); bRaise = Ui.Add(new Button(810, 792, 300, 66, "RAISE", C.Gold, () => Act("raise", sliderVal), 26));
+            bFold = Ui.Add(new Button(330, 792, 190, 66, "FOLD", C.Red, () => Move("fold", 0), 28)); bCall = Ui.Add(new Button(540, 792, 250, 66, "CHECK", C.Cyan, () => Move("call", 0), 28)); bRaise = Ui.Add(new Button(810, 792, 300, 66, "RAISE", C.Gold, () => Move("raise", sliderVal), 26));
             bMin = Ui.Add(new Button(330, 738, 90, 40, "Min", C.Purple, () => Quick("min"), 18)); bHalf = Ui.Add(new Button(430, 738, 100, 40, "½ Pot", C.Purple, () => Quick("half"), 18)); bPot = Ui.Add(new Button(540, 738, 90, 40, "Pot", C.Purple, () => Quick("pot"), 18)); bAll = Ui.Add(new Button(640, 738, 110, 40, "All-In", C.Orange, () => Quick("all"), 18));
             bShow = Ui.Add(new Button(600, 600, 400, 80, "Karten zeigen", C.Green, () => overlayDone = true, 32) { Visible = false });
             Opponents.AddSwitch(this, OppKey, 1310, 790, 270, 70, NewGame);
-            Opp = Opponents.Load(OppKey); NewGame();
+            Opp = Opponents.Load(OppKey); NewGame(); netReady = true;
             Opponents.Pick(this, OppKey, o => NewGame());
         }
-        void Act(string a, int to) { if (!HumanTurn) return; if (Remote) Net("mv", toAct, a, to); pending = (a, to); }
+        void Move(string a, int to) { if (!HumanTurn) return; if (Remote) { Act("mv", a, to); if (!Link.IsHost) { awaitHuman = false; mvSent = true; } return; } pending = (a, to); }
         void NewGame()
         {
-            gen++; Co.Clear(); pending = null; overlay = null; awaitHuman = false; hlCards.Clear(); netMoves.Clear();
-            pokerRnd = Remote ? new Random(Link.Seed * 13 + games++) : Rng.Shared;
-            pl = Remote ? new[] { Mk(SeatName(0), true), Mk(SeatName(1), true), Mk("Computer", false) } : VsCpu ? new[] { Mk(PName(0), true), Mk(PName(1) + " 1", false), Mk(PName(1) + " 2", false) } : new[] { Mk(PName(0), true), Mk(PName(1), true), Mk("Computer", false) };
+            gen++; Co.Clear(); pending = null; overlay = null; awaitHuman = false; hlCards.Clear(); mvSent = false;
+            pokerRnd = Rng.Shared; int n = Remote ? Math.Clamp(Link.Count, 2, 4) : 3;
+            pl = Remote ? Enumerable.Range(0, n).Select(i => Mk(PName(i), true)).ToArray() : VsCpu ? new[] { Mk(PName(0), true), Mk(PName(1) + " 1", false), Mk(PName(1) + " 2", false) } : new[] { Mk(PName(0), true), Mk(PName(1), true), Mk("Computer", false) };
             hotseat = pl.Count(p => p.Human) > 1;
-            button = pokerRnd.Next(3); handNo = 0; board.Clear(); inHand = false; gameOver = false; revealed = -1; winners.Clear(); showAll = false; toAct = -1; log.Clear(); if (Modal != null && Modal.Title != "Gegner wählen") Modal = null;
+            button = Remote ? 0 : pokerRnd.Next(3); handNo = 0; board.Clear(); inHand = false; gameOver = false; revealed = Remote ? MySeat : -1; winners.Clear(); showAll = false; toAct = -1; log.Clear(); if (Modal != null && Modal.Title != "Gegner wählen") Modal = null;
             Lg($"Neues Spiel - jeder startet mit {Start} Chips."); if (VsCpu) Lg($"Computer-Stärke: {Opponents.Label(Opp)}"); msg = "Neues Spiel! \"Nächste Hand\" drücken.";
+            Pub();
         }
-        static P Mk(string n, bool h) => new P { Name = n, Human = h, Chips = Start };
-        void Lg(string t) { log.Insert(0, t); if (log.Count > 40) log.RemoveAt(40); }
+        static P Mk(string n, bool h) => new P { Name = n, Human = h, Chips = Start, Known = true };
+        void Lg(string t) { log.Insert(0, t); if (log.Count > 40) log.RemoveAt(40); if (netReady && Remote && Link.IsHost) Emit("lg", t); }
         static string RS(int r) => PokerEval.RS(r);
         static string CT(PokerCard c) => PokerEval.CT(c);
-        int Next(int i, Func<P, bool> f) { for (int k = 1; k <= 3; k++) { int j = (i + k) % 3; if (f(pl[j])) return j; } return -1; }
+        int Next(int i, Func<P, bool> f) { for (int k = 1; k <= pl.Length; k++) { int j = (i + k) % pl.Length; if (f(pl[j])) return j; } return -1; }
         int Pot => pl.Sum(p => p.Total); List<P> ActiveIn => pl.Where(p => !p.Out && !p.Folded).ToList();
         List<PokerCard> NewDeck() { var d = new List<PokerCard>(); for (int s = 0; s < 4; s++) for (int r = 2; r <= 14; r++) d.Add(new PokerCard(r, s)); Rng.Shuffle(d, pokerRnd); return d; }
         PokerCard Draw() { var c = deck[deck.Count - 1]; deck.RemoveAt(deck.Count - 1); return c; }
@@ -436,7 +526,7 @@ namespace GlamourGames
             {
                 to = Math.Max(L.minTo, Math.Min(L.maxTo, to)); int add = to - p.Bet; p.Chips -= add; p.Bet = to; p.Total += add; if (p.Chips == 0) p.AllIn = true; p.Raises++;
                 int raiseSize = to - curBet; bool full = raiseSize >= lastRaise || (curBet == 0 && to >= bb); bool wasBet = curBet == 0;
-                if (to > curBet) { for (int j = 0; j < 3; j++) { var q = pl[j]; if (j != i && !q.Folded && !q.AllIn && !q.Out) { if (!full && q.Acted) q.CanRaise = false; else if (full) q.CanRaise = true; q.Acted = false; } } if (full) lastRaise = raiseSize; curBet = to; }
+                if (to > curBet) { for (int j = 0; j < pl.Length; j++) { var q = pl[j]; if (j != i && !q.Folded && !q.AllIn && !q.Out) { if (!full && q.Acted) q.CanRaise = false; else if (full) q.CanRaise = true; q.Acted = false; } } if (full) lastRaise = raiseSize; curBet = to; }
                 p.LastAct = (p.AllIn ? "All-In " : wasBet ? "Bet " : "Raise auf ") + to; Lg($"{p.Name}: {p.LastAct}"); Sfx.Play(S.Chip); Sfx.Play(S.Chip, .7f, 1.2f);
                 if (p.AllIn) { var s = Seat[i]; Fx.Shockwave(s.X, s.Y, C.Orange, 220, .5f); App.Shake(4); }
             }
@@ -446,13 +536,13 @@ namespace GlamourGames
         (string act, int to) CpuDecide(int i)
         {
             var p = pl[i]; var L = Legal(i);
-            int pos(int j) => (j - button - 1 + 6) % 3; // 0 = handelt zuerst (nach dem Flop), Button zuletzt
+            int pos(int j) => (j - button - 1 + 2 * pl.Length) % pl.Length; // 0 = handelt zuerst (nach dem Flop), Button zuletzt
             var opps = pl.Where((q, j) => j != i && !q.Out && !q.Folded).ToList();
             var s = new PokerSpot
             {
                 Hole = p.Hole.ToArray(), Board = new List<PokerCard>(board), NOpp = Math.Max(1, ActiveIn.Count - 1), ToCall = L.toCall, MinTo = L.minTo, MaxTo = L.maxTo, CanRaise = L.canRaise,
                 CurBet = curBet, MyBet = p.Bet, MyChips = p.Chips, Pot = Pot, BB = bb, EffStack = opps.Count > 0 ? opps.Max(q => q.Chips + q.Bet) : 0,
-                Behind = Enumerable.Range(0, 3).Count(j => j != i && !pl[j].Out && !pl[j].Folded && !pl[j].AllIn && pos(j) > pos(i)), OppRaised = opps.Any(q => q.Raises > 0)
+                Behind = Enumerable.Range(0, pl.Length).Count(j => j != i && !pl[j].Out && !pl[j].Folded && !pl[j].AllIn && pos(j) > pos(i)), OppRaised = opps.Any(q => q.Raises > 0)
             };
             return PokerAi.Decide(Lvl, s, Rng.Shared);
         }
@@ -463,13 +553,14 @@ namespace GlamourGames
             if (inHand) yield break; foreach (var p in pl) if (p.Chips <= 0) p.Out = true; var alive = pl.Where(p => p.Chips > 0).ToList(); if (alive.Count < 2 || (!hotseat && pl[0].Out)) { GameOver(); yield break; }
             handNo++; int lvl = Math.Min(Blinds.Length - 1, (handNo - 1) / PerLevel); (sb, bb) = Blinds[lvl]; if ((handNo - 1) % PerLevel == 0 && handNo > 1) Lg($"Blinds steigen auf {sb}/{bb}.");
             foreach (var p in pl) { p.Hole.Clear(); p.Bet = p.Total = p.Raises = 0; p.Folded = p.Out; p.AllIn = p.Acted = false; p.CanRaise = true; p.LastAct = p.HandName = ""; p.Flip[0].Snap(0); p.Flip[1].Snap(0); p.G = new Glide[2]; }
-            button = Next(button, p => !p.Out); bool heads = alive.Count == 2; sbI = heads ? button : Next(button, p => !p.Out); bbI = Next(sbI, p => !p.Out);
+            if (Remote && handNo == 1) button = pokerRnd.Next(pl.Length); button = Next(button, p => !p.Out); bool heads = alive.Count == 2; sbI = heads ? button : Next(button, p => !p.Out); bbI = Next(sbI, p => !p.Out);
             deck = NewDeck(); board.Clear(); for (int k = 0; k < 5; k++) { bflip[k].Snap(0); bt[k] = 0; bg[k] = null; } winners.Clear(); hlCards.Clear(); revealed = Remote ? MySeat : hotseat ? -1 : 0; showAll = false; inHand = true; street = "preflop"; handT = 0;
             Post(sbI, sb, "SB"); Post(bbI, bb, "BB"); curBet = bb; lastRaise = bb; for (int k = 0; k < 2; k++) foreach (var p in pl) if (!p.Out) p.Hole.Add(Draw());
-            Lg($"- Hand {handNo} - Blinds {sb}/{bb} - Dealer: {pl[button].Name}"); Sfx.Play(S.Deal); Sfx.Play(S.Chip); toAct = Next(bbI, p => !p.Out && !p.Folded && !p.AllIn); msg = $"Hand {handNo} - Blinds {sb}/{bb}"; yield return .9f;
+            Lg($"- Hand {handNo} - Blinds {sb}/{bb} - Dealer: {pl[button].Name}"); Sfx.Play(S.Deal); Sfx.Play(S.Chip); toAct = Next(bbI, p => !p.Out && !p.Folded && !p.AllIn); msg = $"Hand {handNo} - Blinds {sb}/{bb}"; NetStartHand(); yield return .9f;
             bool skip = false;
             while (true)
             {
+                Pub();
                 if (ActiveIn.Count <= 1) { EndFold(); yield break; }
                 if (skip || RoundDone())
                 {
@@ -477,22 +568,17 @@ namespace GlamourGames
                     if (street == "river") { Showdown(); yield break; }
                     if (street == "preflop") { draw(3); street = "flop"; } else if (street == "flop") { draw(1); street = "turn"; } else { draw(1); street = "river"; }
                     Lg($"{street.ToUpper()}: {string.Join(" ", board.Select(CT))}"); Sfx.Play(S.Flip);
-                    if (ActiveIn.Count(p => !p.AllIn) <= 1) { showAll = true; yield return 1.3f; skip = true; continue; }
-                    toAct = Next(button, p => !p.Out && !p.Folded && !p.AllIn); yield return .5f; continue;
+                    if (ActiveIn.Count(p => !p.AllIn) <= 1) { showAll = true; Pub(); yield return 1.3f; skip = true; continue; }
+                    toAct = Next(button, p => !p.Out && !p.Folded && !p.AllIn); Pub(); yield return .5f; continue;
                 }
                 if (toAct < 0 || pl[toAct].Folded || pl[toAct].AllIn || pl[toAct].Out) toAct = Next(toAct < 0 ? button : toAct, p => !p.Out && !p.Folded && !p.AllIn);
                 var cur = pl[toAct];
-                if (Remote && toAct != MySeat && (cur.Human || !Link.IsHost))
+                if (Remote)
                 {
-                    // Mitspieler oder (beim Beitretenden) der vom Host gerechnete Computer: Zug kommt per Bluetooth
-                    msg = $"{cur.Name} {(cur.Human ? "ist dran" : "überlegt")} ..."; pending = null; int seat = toAct;
-                    yield return (Func<bool>)(() => TakeNet(seat));
-                }
-                else if (Remote && !cur.Human)
-                {
-                    msg = $"{cur.Name} überlegt ..."; pending = null; int g0 = gen, seat = toAct;
-                    CpuThink(Opponents.ThinkTime(Opponent.Medium), () => { if (g0 != gen || !inHand || toAct != seat || pending != null) return; var d = CpuDecide(seat); Net("mv", seat, d.act, d.to); pending = d; });
-                    yield return (Func<bool>)(() => pending != null);
+                    // alle Sitze sind Menschen: der Host wartet auf den Zug des Sitzes am Zug (eigener Zug oder Intent "mv")
+                    revealed = MySeat; pending = null; msg = $"{cur.Name} ist dran - zu zahlen: {Legal(toAct).toCall}";
+                    if (toAct == MySeat) { SetupRaise(); Sfx.Play(S.Turn, .5f); }
+                    awaitHuman = true; Pub(); yield return (Func<bool>)(() => pending != null); awaitHuman = false;
                 }
                 else if (cur.Human)
                 {
@@ -531,7 +617,7 @@ namespace GlamourGames
             var levels = pl.Select(p => p.Total).Where(c => c > 0).Distinct().OrderBy(x => x).ToList(); int prev = 0; var pots = new List<(int amt, List<int> elig)>();
             foreach (var lv in levels)
             {
-                int amt = 0; var elig = new List<int>(); for (int j = 0; j < 3; j++) { var p = pl[j]; int c = Math.Min(p.Total, lv) - Math.Min(p.Total, prev); if (c > 0) amt += c; if (!p.Folded && !p.Out && p.Total >= lv) elig.Add(j); }
+                int amt = 0; var elig = new List<int>(); for (int j = 0; j < pl.Length; j++) { var p = pl[j]; int c = Math.Min(p.Total, lv) - Math.Min(p.Total, prev); if (c > 0) amt += c; if (!p.Folded && !p.Out && p.Total >= lv) elig.Add(j); }
                 if (amt > 0) { if (elig.Count > 0) pots.Add((amt, elig)); else if (pots.Count > 0) pots[pots.Count - 1] = (pots[pots.Count - 1].amt + amt, pots[pots.Count - 1].elig); }
                 prev = lv;
             }
@@ -539,7 +625,7 @@ namespace GlamourGames
             for (int k = 0; k < pots.Count; k++)
             {
                 var pt = pots[k]; long best = pt.elig.Max(j => scores.TryGetValue(j, out var v) ? v : -1); var w = pt.elig.Where(j => (scores.TryGetValue(j, out var v) ? v : -1) == best).ToList(); int share = pt.amt / w.Count, rest = pt.amt - share * w.Count;
-                foreach (var j in w) { pl[j].Chips += share; ws.Add(j); } if (rest > 0) pl[new[] { 1, 2, 3 }.Select(d => (button + d) % 3).First(j => w.Contains(j))].Chips += rest;
+                foreach (var j in w) { pl[j].Chips += share; ws.Add(j); } if (rest > 0) pl[Enumerable.Range(1, pl.Length).Select(d => (button + d) % pl.Length).First(j => w.Contains(j))].Chips += rest;
                 string label = pots.Count > 1 ? (k == 0 ? "Hauptpot" : $"Side-Pot {k}") : "Pot"; msgs.Add($"{label} {pt.amt}: {string.Join(" & ", w.Select(j => $"{pl[j].Name} ({pl[j].HandName})"))}");
             }
             winners = ws.ToList(); foreach (var j in winners) MarkBest(pl[j]);
@@ -558,15 +644,25 @@ namespace GlamourGames
         void Finish()
         {
             inHand = false; toAct = -1; awaitHuman = false; foreach (var p in pl) { p.Total = 0; p.Bet = 0; }
-            if (winners.Any(j => pl[j].Human)) { Sfx.Play(S.Win); Celebrate(C.Gold, 3, .7f); } else Sfx.Play(S.Lose);
-            foreach (var j in winners) { var s = Seat[j]; Fx.Burst(s.X, s.Y, 40, new[] { C.Gold, C.Yellow, C.White }, 380); Fx.Shockwave(s.X, s.Y, C.Gold, 260, .6f); Pop("GEWINNER", s.X, s.Y - 100, C.Gold, 40); }
+            FinishFx();
             foreach (var p in pl) if (p.Chips <= 0 && !p.Out) { p.Out = true; Lg($"{p.Name} ist ausgeschieden."); }
             int g0 = gen;
             if (pl.Count(p => !p.Out) < 2 || (!hotseat && pl[0].Out)) Tm.After(1.4f, () => { if (g0 == gen) GameOver(); });
+            Pub();
+        }
+        void FinishFx()
+        {
+            bool mine = Remote ? winners.Contains(MySeat) : winners.Any(j => pl[j].Human);
+            if (mine) { Sfx.Play(S.Win); Celebrate(C.Gold, 3, .7f); } else Sfx.Play(S.Lose);
+            foreach (var j in winners) { var s = Seat[j]; Fx.Burst(s.X, s.Y, 40, new[] { C.Gold, C.Yellow, C.White }, 380); Fx.Shockwave(s.X, s.Y, C.Gold, 260, .6f); Pop("GEWINNER", s.X, s.Y - 100, C.Gold, 40); }
         }
         void GameOver()
         {
-            if (gameOver) return; gameOver = true; int g0 = gen;
+            if (gameOver) return; gameOver = true; Pub(); ShowGameOver();
+        }
+        void ShowGameOver()
+        {
+            int g0 = gen;
             var alive = pl.Where(p => !p.Out).ToList();
             if (alive.Count != 1)
             {
@@ -592,12 +688,12 @@ namespace GlamourGames
         {
             if (overlay != null) { if (k == Key.Space || k == Key.Enter) overlayDone = true; return; }
             if (!HumanTurn) { if (k == Key.Space && bNext.Visible) netHand(); return; }
-            if (k == Key.F) Act("fold", 0); else if (k == Key.C || k == Key.Space) Act("call", 0);
+            if (k == Key.F) Move("fold", 0); else if (k == Key.C || k == Key.Space) Move("call", 0);
         }
         public override Pt ThinkPos => pl != null && toAct >= 0 && !pl[toAct].Human ? (toAct == 2 ? new Pt(1080, 160) : new Pt(Seat[toAct].X, 724)) : base.ThinkPos;
         public override void Update(float dt)
         {
-            handT += dt; bool ht = HumanTurn; var L = ht ? Legal(toAct) : default;
+            bNew.Visible = !Remote || Link.IsHost; handT += dt; bool ht = HumanTurn; var L = ht ? Legal(toAct) : default;
             bNext.Visible = !inHand && !gameOver && !Co.Busy && overlay == null; bShow.Visible = overlay != null;
             foreach (var b in new[] { bFold, bCall, bRaise, bMin, bHalf, bPot, bAll }) b.Visible = ht;
             if (ht)
@@ -605,7 +701,7 @@ namespace GlamourGames
                 var p = pl[toAct]; bCall.Text = L.toCall == 0 ? "CHECK" : L.toCall >= p.Chips ? $"ALL-IN {p.Chips}" : $"CALL {L.toCall}"; bool ok = L.canRaise && L.maxTo > L.toCall + p.Bet;
                 bRaise.Visible = bMin.Visible = bHalf.Visible = bPot.Visible = bAll.Visible = ok; bRaise.Text = curBet == 0 ? $"BET {sliderVal}" : $"RAISE AUF {sliderVal}";
             }
-            for (int i = 0; i < 3; i++) for (int k = 0; k < 2; k++) { bool show = pl[i].Hole.Count > k && ((showAll && !pl[i].Folded) || (pl[i].Human && revealed == i)); pl[i].Flip[k].Target = show ? 1 : 0; pl[i].Flip[k].Update(dt); }
+            for (int i = 0; i < pl.Length; i++) for (int k = 0; k < 2; k++) { bool show = pl[i].Hole.Count > k && pl[i].Known && ((showAll && !pl[i].Folded) || (pl[i].Human && revealed == i)); pl[i].Flip[k].Target = show ? 1 : 0; pl[i].Flip[k].Update(dt); }
             for (int k = 0; k < 5; k++)
             {
                 bflip[k].Target = k < board.Count ? 1 : 0; bflip[k].Update(dt); if (k < board.Count) bt[k] = Math.Min(1, bt[k] + dt * 3.5f);
@@ -646,7 +742,7 @@ namespace GlamourGames
                 bool hl = winners.Count > 0 && Hl(board[k]); if (hl) Gfx.Light(c, x, y, 110, C.Gold, .35f + .1f * MathF.Sin(Time * 6), 1.8f);
                 var gk = bg[k]; if (gk == null) continue; CardArt.Card(c, gk.X, gk.Y, 92, RS(board[k].R), board[k].S, bflip[k].V, gk.Rot, (hl ? 6 : 0) + gk.Lift, hl);
             }
-            for (int i = 0; i < 3; i++) DrawSeat(c, i);
+            for (int i = 0; i < pl.Length; i++) DrawSeat(c, i);
             DrawLog(c);
             if (HumanTurn) DrawActionBar(c);
             if (overlay != null) DrawOverlay(c);
@@ -662,14 +758,14 @@ namespace GlamourGames
         }
         void DrawSeat(Canvas2D c, int i)
         {
-            var p = pl[i]; var s = Seat[i]; bool turn = inHand && toAct == i && !p.Folded; bool win = winners.Contains(i); var col = i == 0 ? C.Cyan : i == 1 ? C.Pink : C.Green; float dim = p.Out ? .3f : p.Folded ? .5f : 1;
-            var box = Gfx.Ctr(s.X, s.Y + (i == 2 ? 10 : 24), 330, 200);
+            var p = pl[i]; var s = Seat[i]; bool turn = inHand && toAct == i && !p.Folded; bool win = winners.Contains(i); var col = SeatCol[i]; float dim = p.Out ? .3f : p.Folded ? .5f : 1;
+            var box = Gfx.Ctr(s.X, s.Y + SY(i), 330, 200);
             if (win) Gfx.Light(c, s.X, box.MidY, 280, C.Gold, .22f + .08f * MathF.Sin(Time * 5), 1.6f);
             else if (turn) Gfx.Light(c, s.X, box.MidY, 240, col, .12f + .05f * MathF.Sin(Time * 6), 1.4f);
             if (dim < 1) c.SaveLayer(dim); else c.Save();
             if (turn || win) Gfx.Glow(c, box, 22, win ? C.Gold : col, 18, .55f + .3f * MathF.Sin(Time * 6)); W.Panel(c, box, win ? C.Gold : col);
             Gfx.RectGrad(c, new Box(box.Left + 3, box.Top + 3, box.Right - 3, box.Top + 46), 20, col.A(.16f), col.A(0));
-            Gfx.Text(c, p.Name + (p.Human ? "" : " (KI)") + (inHand && i == sbI ? "  SB" : "") + (inHand && i == bbI ? "  BB" : ""), s.X, box.Top + 26, 22, turn ? col.Light(.5f) : Col.White, Al.C, true, turn ? 6 : 0);
+            Gfx.Text(c, Cut(p.Name, 14) + (p.Human ? "" : " (KI)") + (inHand && i == sbI ? "  SB" : "") + (inHand && i == bbI ? "  BB" : ""), s.X, box.Top + 26, 22, turn ? col.Light(.5f) : Col.White, Al.C, true, turn ? 6 : 0);
             for (int k = 0; k < 2; k++)
             {
                 float x = s.X + (k - .5f) * 92, y = box.Top + 100; if (p.Hole.Count <= k) { Gfx.Stroke(c, Gfx.Ctr(x, y, 84, 118), 8, Col.White.A(.12f), 2); continue; }
@@ -679,7 +775,7 @@ namespace GlamourGames
             Gfx.Text(c, p.Out ? "ausgeschieden" : $"{p.Chips} Chips", s.X, box.Bottom - 26, 22, C.Gold, Al.C, true, 4);
             string st = p.HandName.Length > 0 && showAll ? p.HandName : p.AllIn ? "ALL-IN" : p.LastAct; if (st.Length > 0) Gfx.Text(c, st, s.X, box.Bottom + 20, 20, p.Folded ? C.Dim : p.AllIn ? C.Orange.Light(.3f) : C.Yellow.Light(.3f), Al.C, false);
             c.Restore();
-            if (i == button && !p.Out)
+            if (i == button && !p.Out && handNo > 0)
             {
                 var d = new Pt(box.Left + 20, box.Top - 8); var sh = Gfx.Fill(Col.Black.A(.5f)); sh.Blur = 5; c.DrawCircle(d.X + 2, d.Y + 5, 18, sh);
                 c.DrawCircle(d.X, d.Y, 18, Gfx.Fill(Col.White)); var ring = Gfx.Line(C.Gold, 3); ring.Glow = 1.6f; c.DrawCircle(d.X, d.Y, 18, ring); Gfx.Text(c, "D", d.X, d.Y, 22, Col.Black, Al.C);
@@ -687,9 +783,9 @@ namespace GlamourGames
             if (p.Bet <= 0) betStacks[i].Draw(c, Time, 0, 0, 22, 0, col, col);
             if (p.Bet > 0)
             {
-                float bx = 700 + (s.X - 700) * .55f, by = i == 2 ? 330 : 500 - 10; if (i == 2) { bx = 700; by = 330; }
-                if (i == 2) by = 335; betStacks[i].Draw(c, Time, bx + (i == 2 ? 190 : 0), by + (i == 2 ? -50 : 0), 22, Math.Min(6, 1 + p.Bet / 100), col, col);
-                Gfx.Text(c, p.Bet.ToString(), bx + (i == 2 ? 190 : 0), by + 22 + (i == 2 ? -50 : 0), 20, Col.White, Al.C, true, 4);
+                float bx, by; if (s.X == 700) { bx = 890; by = 285; } else { bx = 700 + (s.X - 700) * .55f; by = s.Y < 400 ? 335 : 490; }
+                betStacks[i].Draw(c, Time, bx, by, 22, Math.Min(6, 1 + p.Bet / 100), col, col);
+                Gfx.Text(c, p.Bet.ToString(), bx, by + 22, 20, Col.White, Al.C, true, 4);
             }
         }
         void DrawLog(Canvas2D c)
