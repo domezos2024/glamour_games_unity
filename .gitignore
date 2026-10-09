@@ -29,3 +29,6 @@
 crashlytics-build.properties
 # Python
 __pycache__/
+
+Tools/Tests/bin/
+Tools/Tests/obj/
