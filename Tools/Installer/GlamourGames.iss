@@ -1,7 +1,7 @@
 ; Glamour Games - Windows-Installer (Inno Setup 6)
-; Aufruf: ISCC.exe /DAppVer=2.4.0 /DBuildDir=<Build-Ordner> /DOutDir=<Ausgabe> Tools\Installer\GlamourGames.iss
+; Aufruf: ISCC.exe /DAppVer=3.0.0 /DBuildDir=<Build-Ordner> /DOutDir=<Ausgabe> Tools\Installer\GlamourGames.iss
 #ifndef AppVer
-  #define AppVer "2.4.0"
+  #define AppVer "3.0.0"
 #endif
 #ifndef BuildDir
   #define BuildDir "..\..\Builds\Windows"
@@ -36,6 +36,7 @@ UninstallDisplayName=Glamour Games
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
+LicenseFile=..\..\LICENSE
 CloseApplications=yes
 MinVersion=10.0
 
@@ -48,6 +49,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*_BurstDebugInformation_DoNotShip\*,*_BackUpThisFolder_ButDontShipItWithYourGame\*"
+
+Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\legal\MIT-legacy.txt"; DestDir: "{app}\legal"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Glamour Games"; Filename: "{app}\GlamourGames.exe"

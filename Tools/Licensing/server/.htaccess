@@ -1,0 +1,4 @@
+Options -Indexes
+<FilesMatch "^(policy\.php|migrate-paid-plans\.php|config.*\.php|signing-key\.php|.*\.(sqlite.*|pem))$">
+    Require all denied
+</FilesMatch>

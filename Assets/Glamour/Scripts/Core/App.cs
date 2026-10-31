@@ -13,7 +13,7 @@ namespace GlamourGames
     public sealed class App : MonoBehaviour
     {
         public const float VW = 1600, VH = 900;
-        public const string Version = "1.0.0", Credit = "erstellt von Michael Bergfeld @ DoMeZos-Ware 2026";
+        public const string Version = "3.0.0", Credit = "erstellt von Michael Bergfeld @ DoMeZos-Ware 2026";
         public static float VX0, VX1 = VW, VY0, VY1 = VH, MX, MY;
         /// <summary>Wird von PostFX (URP) gesetzt, um Bloom &amp; Co. an der Kamera einzurichten.</summary>
         public static Action<Camera> SetupPostFx;
@@ -43,7 +43,13 @@ namespace GlamourGames
         }
 
         // ------------------------------------------------------------------ Oeffentliche API
-        public static void Go(Scene s) { if (pending != null) return; pending = s; Log.I("go " + s.GetType().Name); }
+        public static void Go(Scene s)
+        {
+#if UNITY_5_3_OR_NEWER
+            if (!LicenseAccess.Allowed) return;
+#endif
+            if (pending != null) return; pending = s; Log.I("go " + s.GetType().Name);
+        }
         public static void Flash(Col c, float a = .5f) { flash = a; flashCol = c; }
         public static void Shake(float a = 14) { shake = Math.Max(shake, a); }
         public static void Toast(string t) { toast = t; toastT = 2.4f; }
@@ -126,6 +132,10 @@ namespace GlamourGames
                     }
             }
             if (!Platform.Touch && Save.Int("fullscreen", 0) == 1 && !Application.isEditor) Screen.SetResolution(Display.main.systemWidth, Display.main.systemHeight, FullScreenMode.FullScreenWindow);
+#if UNITY_5_3_OR_NEWER
+            LicenseAccess.Initialize(gameObject);
+            if (LicenseAccess.Required) { cur = null; pending = null; return; }
+#endif
             cur = startScene >= 0 && startScene < Registry.All.Count ? Registry.All[startScene].Make() : new Menu();
             cur.Enter(); fade = startScene >= 0 ? 0 : 1;
         }
@@ -144,6 +154,9 @@ namespace GlamourGames
         // ------------------------------------------------------------------ Eingabe (IMGUI-Ereignisse: funktionieren mit jedem Input-Backend)
         void OnGUI()
         {
+#if UNITY_5_3_OR_NEWER
+            if (!LicenseAccess.Allowed) return;
+#endif
             var e = Event.current; if (e == null) return;
             bool touch = Platform.Touch;
             if (!touch && (e.isMouse || e.type == EventType.Repaint || e.type == EventType.ScrollWheel)) { guiMouse = e.mousePosition; haveMouse = true; }
@@ -281,6 +294,20 @@ namespace GlamourGames
         // ------------------------------------------------------------------ Frame
         void Update()
         {
+#if UNITY_5_3_OR_NEWER
+            if (!LicenseAccess.Allowed)
+            {
+                events.Clear(); pending = null;
+                if (cur != null)
+                {
+                    Link.Stop();
+                    try { cur.Leave(); } catch (Exception e) { Debug.LogException(e); }
+                    cur = null; pending = null; mesh.Clear();
+                }
+                return;
+            }
+            if (cur == null) { cur = new Menu(); cur.Enter(); fade = 1; events.Clear(); }
+#endif
             float dt = Mathf.Min(Time.unscaledDeltaTime, .05f);
             autoT += dt;
             Perf(Time.unscaledDeltaTime); AdaptiveQuality.Tick(Time.unscaledDeltaTime);

@@ -1,0 +1,1 @@
+This non-sensitive file must return HTTP 403 when requested over the web.
