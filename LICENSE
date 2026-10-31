@@ -1,21 +1,54 @@
-MIT License
+Glamour Games Commercial License
+Version 3.0.0 - effective 31 October 2026
 
-Copyright (c) 2026 Michael Bergfeld @ DoMeZos-Ware
+Copyright (c) 2026 Michael Bergfeld / DoMeZos-Ware. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Scope and preserved licenses
+This license covers the new original contributions first released with version
+3.0.0 and the commercial Glamour Games release that contains those contributions.
+It does not revoke rights already granted for earlier MIT-licensed versions or
+portions. Those portions retain their applicable MIT rights and notices; see
+legal/MIT-legacy.txt. Third-party components retain their own licenses and notices
+in THIRD_PARTY_NOTICES.md. These preserved terms take precedence for those portions.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+2. Trial and subscribed use
+You may install the official application and use all game features during a
+seven-day trial activated on its first successful online start for the device
+and platform. No PayPal account or payment method is required for that trial.
+After the trial, continued use of the commercial features requires a valid
+subscription for the relevant platform. A subscription is created only by the
+customer's explicit checkout consent. The trial alone never authorizes a charge.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+The offered prices are EUR 2.99 per 30 days for Windows and EUR 1.99 per 30 days
+for Android. The price and billing terms shown and expressly accepted at checkout
+govern the subscription. Renewal continues until cancellation. Cancellation stops
+future renewal; an already paid access period remains available subject to a
+valid license check. No separate purchase of game chips, wagers or cash winnings
+is offered.
+
+3. Online verification and recovery
+Internet access is required at startup, after resume/focus changes and for
+regular license checks. Access may be unavailable when verification fails.
+The application uses a pseudonymous device identifier to prevent resetting the
+same device's trial. A recovery key can restore a subscribed access entitlement.
+The current product does not enforce a single concurrent device limit.
+
+4. Rights reserved for the new commercial contributions
+Except for rights granted above, a separate written permission, applicable
+third-party/legacy licenses, or mandatory law, no permission is granted to copy,
+modify, redistribute, sublicense, sell or publicly host the newly proprietary
+contributions or the complete commercial build. Public visibility of the
+repository does not grant an open-source license for those new contributions.
+Do not remove or bypass access controls for those proprietary contributions
+except where mandatory law expressly permits it.
+
+5. Statutory rights and limits
+Mandatory consumer rights, cancellation/withdrawal rights, statutory warranty
+rights and liability that cannot lawfully be excluded remain unaffected.
+This document does not replace the checkout disclosures or applicable law.
+No promise of uninterrupted connectivity, universal device compatibility or
+absolute protection against modified clients is made.
+
+6. Contact
+Licensor: Michael Bergfeld / DoMeZos-Ware
+https://domezos-ware.com/

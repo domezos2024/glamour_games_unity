@@ -32,3 +32,11 @@ __pycache__/
 
 Tools/Tests/bin/
 Tools/Tests/obj/
+
+# Licensing test/build projects are source files; generated output and secrets are not.
+!Tools/Licensing/**/*.csproj
+Tools/Licensing/**/bin/
+Tools/Licensing/**/obj/
+Tools/Licensing/private/
+Tools/Licensing/**/*.pem
+Tools/Licensing/**/*.sqlite*

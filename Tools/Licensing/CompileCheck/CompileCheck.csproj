@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework><LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable><EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <PlatformSymbols Condition="'$(PlatformSymbols)' == ''">UNITY_STANDALONE_WIN</PlatformSymbols>
+    <DefineConstants>UNITY_5_3_OR_NEWER;$(PlatformSymbols);ENABLE_LEGACY_INPUT_MANAGER</DefineConstants>
+    <UnityManagedPath Condition="'$(UnityManagedPath)' == ''">C:/Program Files/Unity/Hub/Editor/6000.3.25f1/Editor/Data/Managed</UnityManagedPath>
+  </PropertyGroup>
+  <ItemGroup><Reference Include="$(UnityManagedPath)/UnityEngine/UnityEngine.*Module.dll" /></ItemGroup>
+  <ItemGroup><Reference Include="../../../Library/ScriptAssemblies/Unity.RenderPipelines.*.dll" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../../Assets/Glamour/Scripts/Core/**/*.cs" />
+    <Compile Include="../../../Assets/Glamour/Scripts/Games/*.cs" />
+    <Compile Include="../../../Assets/Glamour/Scripts/URP/AdaptiveQuality.cs" />
+  </ItemGroup>
+</Project>
